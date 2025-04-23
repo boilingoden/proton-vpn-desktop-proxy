@@ -5,10 +5,10 @@
   "main": "dist/main/main.js",
   "scripts": {
     "start": "electron .",
-    "build": "tsc",
+    "build": "npm run clean && tsc",
     "watch": "tsc -w",
-    "dev": "tsc -w & electron .",
-    "package": "electron-builder",
+    "dev": "npm run build && tsc -w & electron .",
+    "package": "npm run build && electron-builder",
     "test": "jest",
     "clean": "rimraf dist"
   },
@@ -46,9 +46,7 @@
       "package.json"
     ],
     "linux": {
-      "target": [
-        "AppImage"
-      ],
+      "target": ["AppImage"],
       "category": "Network",
       "maintainer": "Proton",
       "asarUnpack": [
