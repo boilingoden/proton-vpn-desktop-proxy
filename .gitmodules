@@ -1,0 +1,3 @@
+[submodule "proton-vpn-browser-extension"]
+	path = proton-vpn-browser-extension
+	url = https://github.com/ProtonVPN/proton-vpn-browser-extension.git
