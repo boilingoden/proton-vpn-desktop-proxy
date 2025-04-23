@@ -45,30 +45,12 @@
       "dist/**/*",
       "package.json"
     ],
-    "mac": {
-      "category": "public.app-category.utilities",
-      "target": [
-        "dmg",
-        "zip"
-      ]
-    },
     "linux": {
       "target": [
-        "AppImage",
-        "deb",
-        "rpm"
+        "AppImage"
       ],
       "category": "Network",
       "maintainer": "Proton",
-      "asarUnpack": [
-        "node_modules/node-fetch/**/*",
-        "node_modules/https-proxy-agent/**/*"
-      ]
-    },
-    "win": {
-      "target": [
-        "nsis"
-      ],
       "asarUnpack": [
         "node_modules/node-fetch/**/*",
         "node_modules/https-proxy-agent/**/*"
