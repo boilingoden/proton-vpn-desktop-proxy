@@ -22,10 +22,18 @@
   "devDependencies": {
     "@types/node": "latest",
     "@types/node-fetch": "^2.6.3",
+    "crypto-browserify": "^3.12.1",
+    "css-loader": "^7.1.2",
     "electron": "latest",
     "electron-builder": "^24.0.0",
+    "os-browserify": "^0.3.0",
+    "path-browserify": "^1.0.1",
     "rimraf": "^5.0.0",
-    "typescript": "latest"
+    "style-loader": "^4.0.0",
+    "ts-loader": "^9.5.2",
+    "typescript": "latest",
+    "webpack": "^5.99.6",
+    "webpack-cli": "^6.0.1"
   },
   "build": {
     "appId": "com.proton.vpn.desktop.proxy",
@@ -39,10 +47,17 @@
     ],
     "mac": {
       "category": "public.app-category.utilities",
-      "target": ["dmg", "zip"]
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "linux": {
-      "target": ["AppImage", "deb", "rpm"],
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
       "category": "Network",
       "maintainer": "Proton",
       "asarUnpack": [
@@ -51,7 +66,9 @@
       ]
     },
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "asarUnpack": [
         "node_modules/node-fetch/**/*",
         "node_modules/https-proxy-agent/**/*"
