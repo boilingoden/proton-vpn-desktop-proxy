@@ -1,0 +1,76 @@
+{
+  "name": "proton-vpn-desktop",
+  "version": "1.0.0",
+  "description": "Proton VPN Desktop Client",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "start": "npm run build && electron .",
+    "build": "tsc && npm run copy-assets",
+    "copy-assets": "cp -r src/renderer/*.html src/renderer/*.css dist/renderer/",
+    "watch": "tsc -w",
+    "dev": "nodemon --watch 'src/**/*' --ext 'ts,html,css' --exec 'npm run start'",
+    "rebuild": "electron-rebuild",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir",
+    "dist:all": "electron-builder -mwl",
+    "publish": "electron-builder --publish always",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "build": {
+    "appId": "com.protonvpn.desktop",
+    "productName": "Proton VPN",
+    "directories": {
+      "output": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "src/renderer/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": ["dmg", "zip"]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Network",
+      "synopsis": "Proton VPN Desktop Client"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "publish": {
+      "provider": "github",
+      "releaseType": "release"
+    }
+  },
+  "keywords": [
+    "vpn",
+    "proton",
+    "desktop"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/electron": "^1.4.38",
+    "@types/electron-store": "^1.3.1",
+    "@types/node": "^22.14.1",
+    "electron": "^35.2.0",
+    "electron-builder": "^26.0.12",
+    "electron-rebuild": "^3.2.9",
+    "node-gyp": "^11.2.0",
+    "nodemon": "^3.1.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "electron-store": "^10.0.1"
+  }
+}
