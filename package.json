@@ -26,6 +26,7 @@
     "css-loader": "^7.1.2",
     "electron": "latest",
     "electron-builder": "^24.0.0",
+    "html-webpack-plugin": "^5.6.3",
     "os-browserify": "^0.3.0",
     "path-browserify": "^1.0.1",
     "rimraf": "^5.0.0",
@@ -46,7 +47,9 @@
       "package.json"
     ],
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "category": "Network",
       "maintainer": "Proton",
       "asarUnpack": [
