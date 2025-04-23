@@ -4,7 +4,7 @@ import { getAuthData } from './utils';
 const API_BASE = 'https://api.protonvpn.com/v2';
 
 interface APIResponse<T> {
-    code: number;
+    Code?: number;
     error?: string;
     data?: T;
 }
@@ -67,13 +67,37 @@ export class ProtonVPNAPI {
                 body: JSON.stringify({ refreshToken })
             });
 
-            if (response.error) {
-                throw new Error(response.error);
+            if (response.error || !response.data?.token) {
+                throw new Error(response.error || 'Invalid refresh token response');
             }
 
-            return response.data?.token || null;
+            return response.data.token;
         } catch (error) {
             console.error('Failed to refresh token:', error);
+            return null;
+        }
+    }
+
+    static async getProxyToken(duration: number = 3600): Promise<{ username: string; password: string; expiresIn: number } | null> {
+        try {
+            const response = await this.request<{
+                Code: number;
+                Username: string;
+                Password: string;
+                Expire: number;
+            }>(`/vpn/browser/token?Duration=${duration}`);
+
+            if (response.Code !== 1000 || !response.data) {
+                throw new Error('Invalid proxy token response');
+            }
+
+            return {
+                username: response.data.Username,
+                password: response.data.Password,
+                expiresIn: response.data.Expire
+            };
+        } catch (error) {
+            console.error('Failed to get proxy token:', error);
             return null;
         }
     }

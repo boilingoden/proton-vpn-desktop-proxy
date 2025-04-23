@@ -579,24 +579,27 @@ class VPNClientUI {
     }
 
     private async handleAuth() {
-        const authUrl = 'https://account.protonvpn.com/authorize'; // Replace with actual OAuth URL
+        const authUrl = 'https://account.protonvpn.com/authorize';
         try {
             const result = await ipcRenderer.invoke(IPC_CHANNELS.AUTH.START, authUrl);
             if (result) {
                 const urlParams = new URLSearchParams(result.split('?')[1]);
-                const token = urlParams.get('token');
-                if (token) {
+                const accessToken = urlParams.get('access_token');
+                const refreshToken = urlParams.get('refresh_token');
+                const expiresIn = urlParams.get('expires_in');
+                
+                if (accessToken && refreshToken && expiresIn) {
                     saveAuthData({
-                        accessToken: token,
-                        refreshToken: '', // In real implementation, get from OAuth response
-                        expiresAt: Date.now() + 3600000 // 1 hour expiry
+                        accessToken,
+                        refreshToken,
+                        expiresAt: Date.now() + (Number(expiresIn) * 1000)
                     });
                     return true;
                 }
             }
         } catch (error) {
             console.error('Authentication failed:', error);
-            alert('Authentication failed');
+            this.showError('Authentication failed');
         }
         return false;
     }

@@ -43,6 +43,7 @@ export interface ProxyConfig {
     username?: string;
     password?: string;
     bypassList?: string[];
+    lastCredentialRefresh?: number;
 }
 
 export interface ProxySetConfig {
@@ -115,12 +116,16 @@ export const IPC_CHANNELS = {
     },
     SETTINGS: {
         SAVE: 'settings:save',
-        GET: 'settings:get'
+        GET: 'settings:get',
+        APPLY: 'settings:apply'
     },
     AUTH: {
-        START: 'auth:start'
+        START: 'auth:start',
+        REFRESH: 'auth:refresh'
     },
     EVENTS: {
-        PROXY_CONNECTION_LOST: 'proxy-connection-lost'
+        PROXY_CONNECTION_LOST: 'proxy-connection-lost',
+        CREDENTIALS_EXPIRED: 'credentials-expired',
+        SETTINGS_CHANGED: 'settings-changed'
     }
 } as const;

@@ -1,5 +1,6 @@
 import Store from 'electron-store';
 import { AuthConfig, ProxyConfig, Settings, DEFAULT_SETTINGS } from './types';
+import { ProtonVPNAPI } from './api';
 
 interface StoreSchema {
     auth: AuthConfig | null;
@@ -8,7 +9,6 @@ interface StoreSchema {
     settings: Settings;
 }
 
-// Cast the store instance to any initially to avoid TypeScript errors with methods
 const store = new Store<StoreSchema>({
     defaults: {
         auth: null,
@@ -38,10 +38,39 @@ export function clearAuthData(): void {
 }
 
 export function isTokenExpired(expiresAt: number): boolean {
+    // Consider token expired 5 minutes before actual expiry
     return Date.now() + 5 * 60 * 1000 >= expiresAt;
 }
 
+export async function refreshAuthToken(): Promise<boolean> {
+    try {
+        const authData = getAuthData();
+        if (!authData?.refreshToken) {
+            return false;
+        }
+
+        const newAuthData = await ProtonVPNAPI.refreshToken(authData.refreshToken);
+        if (!newAuthData) {
+            clearAuthData();
+            return false;
+        }
+
+        saveAuthData(newAuthData);
+        return true;
+    } catch (error) {
+        console.error('Failed to refresh token:', error);
+        return false;
+    }
+}
+
 export function saveProxyConfig(config: ProxyConfig): void {
+    // Update lastCredentialRefresh when credentials change
+    const currentConfig = getProxyConfig();
+    if (!currentConfig || 
+        currentConfig.username !== config.username || 
+        currentConfig.password !== config.password) {
+        config.lastCredentialRefresh = Date.now();
+    }
     store.set(storeKeys.PROXY, config);
 }
 
@@ -54,7 +83,7 @@ export function clearProxyConfig(): void {
 }
 
 export function getSettings(): Settings {
-    return store.get(storeKeys.SETTINGS);
+    return store.get(storeKeys.SETTINGS, DEFAULT_SETTINGS);
 }
 
 export function updateSettings(settings: Partial<Settings>): void {
@@ -77,33 +106,11 @@ export function getLastServer(): string | null {
     return store.get(storeKeys.LAST_SERVER);
 }
 
-export async function refreshAuthToken(): Promise<boolean> {
-    const authData = getAuthData();
-    if (!authData?.refreshToken) return false;
-
-    try {
-        const response = await fetch('https://api.protonvpn.com/v2/auth/refresh', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ refreshToken: authData.refreshToken })
-        });
-
-        if (!response.ok) {
-            throw new Error('Failed to refresh token');
-        }
-
-        const data = await response.json();
-        saveAuthData({
-            accessToken: data.accessToken,
-            refreshToken: data.refreshToken,
-            expiresAt: Date.now() + (data.expiresIn * 1000)
-        });
-        return true;
-    } catch (error) {
-        console.error('Token refresh failed:', error);
-        clearAuthData();
-        return false;
-    }
+export function isCredentialRefreshNeeded(): boolean {
+    const proxyConfig = getProxyConfig();
+    if (!proxyConfig?.lastCredentialRefresh) return true;
+    
+    // Check if credentials are older than 45 minutes (75% of 1 hour token duration)
+    const refreshAge = Date.now() - proxyConfig.lastCredentialRefresh;
+    return refreshAge > 45 * 60 * 1000;
 }
