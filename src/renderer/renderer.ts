@@ -149,6 +149,13 @@ class SettingsManager {
 }
 
 class VPNClientUI {
+    private signInView: HTMLElement;
+    private mainView: HTMLElement;
+    private signInButton: HTMLButtonElement;
+    private signUpButton: HTMLButtonElement;
+    private signInLink: HTMLElement;
+    private incentiveParagraph: HTMLElement;
+    
     private connectButton: HTMLButtonElement;
     private disconnectButton: HTMLButtonElement;
     private statusElement: HTMLDivElement;
@@ -167,6 +174,15 @@ class VPNClientUI {
     private settingsManager: SettingsManager;
 
     constructor() {
+        // Initialize sign-in related elements
+        this.signInView = document.getElementById('sign-in-view') as HTMLElement;
+        this.mainView = document.getElementById('main-view') as HTMLElement;
+        this.signInButton = this.signInView.querySelector('.sign-in-button') as HTMLButtonElement;
+        this.signUpButton = this.signInView.querySelector('.sign-up-button') as HTMLButtonElement;
+        this.signInLink = this.signInView.querySelector('.sign-in-link') as HTMLElement;
+        this.incentiveParagraph = this.signInView.querySelector('.incentive-paragraph') as HTMLElement;
+
+        // Initialize existing elements
         this.connectButton = document.getElementById('connect-btn') as HTMLButtonElement;
         this.disconnectButton = document.getElementById('disconnect-btn') as HTMLButtonElement;
         this.statusElement = document.getElementById('connection-status') as HTMLDivElement;
@@ -178,10 +194,61 @@ class VPNClientUI {
         this.searchInput = document.getElementById('server-search') as HTMLInputElement;
         this.settingsManager = new SettingsManager();
 
+        this.setupSignInView();
         this.initializeUI();
         this.setupEventListeners();
         this.restoreState();
         this.setupProxyEventListeners();
+    }
+
+    private setupSignInView() {
+        // Set incentive text
+        this.incentiveParagraph.textContent = "Protect yourself online with Proton's free high-speed VPN";
+
+        // Setup sign in button
+        this.signInButton.addEventListener('click', async () => {
+            const authResult = await this.handleAuth();
+            if (authResult) {
+                this.showMainView();
+            }
+        });
+
+        // Setup sign up button
+        this.signUpButton.addEventListener('click', async () => {
+            const signupUrl = 'https://account.protonvpn.com/signup';
+            window.open(signupUrl, '_blank');
+        });
+
+        // Setup sign in link (alternative sign in method)
+        this.signInLink.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const authResult = await this.handleAuth();
+            if (authResult) {
+                this.showMainView();
+            }
+        });
+
+        // Check auth status on load
+        this.checkInitialAuth();
+    }
+
+    private async checkInitialAuth() {
+        const authData = getAuthData();
+        if (authData && !isTokenExpired(authData.expiresAt)) {
+            this.showMainView();
+        } else {
+            this.showSignInView();
+        }
+    }
+
+    private showMainView() {
+        this.signInView.style.display = 'none';
+        this.mainView.style.display = 'block';
+    }
+
+    private showSignInView() {
+        this.signInView.style.display = 'block';
+        this.mainView.style.display = 'none';
     }
 
     private setupProxyEventListeners() {
@@ -581,6 +648,7 @@ class VPNClientUI {
     private async handleAuth() {
         const authUrl = 'https://account.protonvpn.com/authorize';
         try {
+            this.signInButton.classList.add('loading');
             const result = await ipcRenderer.invoke(IPC_CHANNELS.AUTH.START, authUrl);
             if (result) {
                 const urlParams = new URLSearchParams(result.split('?')[1]);
@@ -600,6 +668,8 @@ class VPNClientUI {
         } catch (error) {
             console.error('Authentication failed:', error);
             this.showError('Authentication failed');
+        } finally {
+            this.signInButton.classList.remove('loading');
         }
         return false;
     }
