@@ -28,24 +28,13 @@
       "src/renderer/**/*",
       "package.json"
     ],
-    "mac": {
-      "category": "public.app-category.utilities",
-      "target": ["dmg", "zip"]
-    },
     "linux": {
       "target": [
-        "AppImage",
-        "deb"
+        "AppImage"
       ],
       "category": "Network",
       "synopsis": "Proton VPN Desktop Client",
       "maintainer": "ProtonVPN <contact@protonvpn.com>"
-    },
-    "win": {
-      "target": [
-        "nsis",
-        "portable"
-      ]
     },
     "publish": {
       "provider": "github",
@@ -53,7 +42,7 @@
     }
   },
   "keywords": [
-    "vpn",
+    "proxy",
     "proton",
     "desktop"
   ],
