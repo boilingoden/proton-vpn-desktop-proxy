@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, session } from 'electron';
 import { join } from 'path';
-import { IPC_CHANNELS } from '../common/types';
-import { saveAuthData, getAuthData, clearAuthData, saveProxyConfig, clearProxyConfig } from '../common/utils';
+import { IPC_CHANNELS, VPNServer } from '../common/types';
+import { saveAuthData, getAuthData, clearAuthData, saveProxyConfig, clearProxyConfig, getSettings, refreshAuthToken, getLastServer } from '../common/utils';
+import { ProtonVPNAPI } from '../common/api';
 
 class MainProcess {
     private mainWindow: BrowserWindow | null = null;
@@ -22,9 +23,10 @@ class MainProcess {
             }
         }
 
-        app.on('ready', () => {
+        app.on('ready', async () => {
             this.createMainWindow();
             this.setupIpcHandlers();
+            await this.handleAutoConnect();
         });
 
         app.on('window-all-closed', () => {
@@ -132,6 +134,33 @@ class MainProcess {
         } catch (error) {
             console.error('Failed to clear system proxy:', error);
             return false;
+        }
+    }
+
+    private async handleAutoConnect() {
+        const settings = getSettings();
+        if (!settings.autoConnect.enabled || !settings.autoConnect.serverId) {
+            return;
+        }
+
+        try {
+            // Check and refresh auth if needed
+            const authData = getAuthData();
+            if (!authData) return;
+
+            if (await refreshAuthToken()) {
+                const servers = await ProtonVPNAPI.getServers();
+                const server = servers.find(s => s.id === settings.autoConnect.serverId);
+                
+                if (server && server.status === 'online') {
+                    await this.setSystemProxy({
+                        host: server.host,
+                        port: server.port
+                    });
+                }
+            }
+        } catch (error) {
+            console.error('Auto-connect failed:', error);
         }
     }
 }

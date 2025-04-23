@@ -1,6 +1,6 @@
 import { ipcRenderer } from 'electron';
 import { VPNServer, VPNConnectionConfig, IPC_CHANNELS } from '../common/types';
-import { getAuthData, saveAuthData, isTokenExpired, getProxyConfig } from '../common/utils';
+import { getAuthData, saveAuthData, isTokenExpired, getProxyConfig, getSettings, updateSettings, resetSettings } from '../common/utils';
 import { ProtonVPNAPI } from '../common/api';
 
 class NotificationManager {
@@ -47,6 +47,110 @@ class NotificationManager {
     }
 }
 
+class SettingsManager {
+    private settingsPanel: HTMLElement;
+    private settingsBtn: HTMLElement;
+    private closeSettingsBtn: HTMLElement;
+    private settingsInputs: { [key: string]: HTMLInputElement | HTMLSelectElement };
+
+    constructor() {
+        this.settingsPanel = document.getElementById('settings-panel') as HTMLElement;
+        this.settingsBtn = document.getElementById('settings-btn') as HTMLElement;
+        this.closeSettingsBtn = document.getElementById('close-settings') as HTMLElement;
+        
+        this.settingsInputs = {
+            autoConnect: document.getElementById('setting-auto-connect') as HTMLInputElement,
+            killSwitch: document.getElementById('setting-kill-switch') as HTMLInputElement,
+            protocol: document.getElementById('setting-protocol') as HTMLSelectElement,
+            customDns: document.getElementById('setting-custom-dns') as HTMLInputElement,
+            dnsServers: document.getElementById('dns-servers') as HTMLInputElement,
+            splitTunnel: document.getElementById('setting-split-tunnel') as HTMLInputElement,
+            splitTunnelMode: document.getElementById('split-tunnel-mode') as HTMLSelectElement,
+        };
+
+        this.setupEventListeners();
+        this.loadSettings();
+    }
+
+    private setupEventListeners() {
+        this.settingsBtn.addEventListener('click', () => this.openSettings());
+        this.closeSettingsBtn.addEventListener('click', () => this.closeSettings());
+
+        // Handle conditional displays
+        this.settingsInputs.customDns.addEventListener('change', () => {
+            const dnsServersDiv = document.getElementById('custom-dns-servers');
+            if (dnsServersDiv) {
+                dnsServersDiv.style.display = this.settingsInputs.customDns.checked ? 'block' : 'none';
+            }
+        });
+
+        this.settingsInputs.splitTunnel.addEventListener('change', () => {
+            const splitTunnelConfig = document.getElementById('split-tunnel-config');
+            if (splitTunnelConfig) {
+                splitTunnelConfig.style.display = this.settingsInputs.splitTunnel.checked ? 'block' : 'none';
+            }
+        });
+
+        // Save settings on change
+        Object.values(this.settingsInputs).forEach(input => {
+            input.addEventListener('change', () => this.saveSettings());
+        });
+    }
+
+    private openSettings() {
+        this.settingsPanel.classList.add('open');
+    }
+
+    private closeSettings() {
+        this.settingsPanel.classList.remove('open');
+    }
+
+    private loadSettings() {
+        const settings = getSettings();
+        
+        this.settingsInputs.autoConnect.checked = settings.autoConnect.enabled;
+        this.settingsInputs.killSwitch.checked = settings.killSwitch;
+        this.settingsInputs.protocol.value = settings.protocol;
+        this.settingsInputs.customDns.checked = settings.dns.custom;
+        this.settingsInputs.dnsServers.value = settings.dns.servers.join(', ');
+        this.settingsInputs.splitTunnel.checked = settings.splitTunneling.enabled;
+        this.settingsInputs.splitTunnelMode.value = settings.splitTunneling.mode;
+
+        // Update conditional displays
+        const dnsServersDiv = document.getElementById('custom-dns-servers');
+        if (dnsServersDiv) {
+            dnsServersDiv.style.display = settings.dns.custom ? 'block' : 'none';
+        }
+
+        const splitTunnelConfig = document.getElementById('split-tunnel-config');
+        if (splitTunnelConfig) {
+            splitTunnelConfig.style.display = settings.splitTunneling.enabled ? 'block' : 'none';
+        }
+    }
+
+    private saveSettings() {
+        const settings = {
+            autoConnect: {
+                enabled: this.settingsInputs.autoConnect.checked,
+                serverId: undefined // Will be set when connecting to a server
+            },
+            killSwitch: this.settingsInputs.killSwitch.checked,
+            protocol: this.settingsInputs.protocol.value as 'udp' | 'tcp',
+            dns: {
+                custom: this.settingsInputs.customDns.checked,
+                servers: this.settingsInputs.dnsServers.value.split(',').map(s => s.trim()).filter(Boolean)
+            },
+            splitTunneling: {
+                enabled: this.settingsInputs.splitTunnel.checked,
+                mode: this.settingsInputs.splitTunnelMode.value as 'include' | 'exclude',
+                apps: [] // Will be populated when adding apps
+            }
+        };
+
+        updateSettings(settings);
+    }
+}
+
 class VPNClientUI {
     private connectButton: HTMLButtonElement;
     private disconnectButton: HTMLButtonElement;
@@ -61,6 +165,7 @@ class VPNClientUI {
     private notifications: NotificationManager;
     private servers: VPNServer[] = [];
     private searchInput: HTMLInputElement;
+    private settings: SettingsManager;
 
     constructor() {
         this.connectButton = document.getElementById('connect-btn') as HTMLButtonElement;
@@ -72,6 +177,8 @@ class VPNClientUI {
 
         this.notifications = new NotificationManager();
         this.searchInput = document.getElementById('server-search') as HTMLInputElement;
+
+        this.settings = new SettingsManager();
 
         this.initializeUI();
         this.setupEventListeners();
@@ -224,6 +331,17 @@ class VPNClientUI {
                     this.setLoading(false, this.connectButton);
                     return;
                 }
+            }
+
+            const settings = getSettings();
+            if (settings.autoConnect.enabled) {
+                updateSettings({
+                    ...settings,
+                    autoConnect: {
+                        ...settings.autoConnect,
+                        serverId: this.currentServer.id
+                    }
+                });
             }
 
             const success = await ipcRenderer.invoke(IPC_CHANNELS.PROXY.SET, {

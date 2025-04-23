@@ -1,53 +1,49 @@
-export interface VPNServer {
+export interface ProxyServer {
     id: string;
     name: string;
     host: string;
     port: number;
-    country: string;
-    city?: string;
-    load?: number;
-    tier: number;
-    features?: string[];
-    entryCountry?: string;
-    exitCountry?: string;
-    status: 'online' | 'offline' | 'maintenance';
-    score?: number;
-}
-
-export interface VPNConnectionConfig {
-    server: VPNServer;
-    protocol: 'udp' | 'tcp';
+    country?: string;
+    protocol: 'http' | 'https' | 'socks4' | 'socks5';
     username?: string;
     password?: string;
 }
 
-export interface AuthConfig {
-    accessToken: string;
-    refreshToken: string;
-    expiresAt: number;
-}
-
 export interface ProxyConfig {
-    host: string;
-    port: number;
-    protocol: string;
     enabled: boolean;
+    server: ProxyServer | null;
+    autoSwitch: boolean;
+    rules: ProxyRule[];
 }
 
-// IPC channel names
+export interface ProxyRule {
+    pattern: string;
+    server: ProxyServer | null;
+}
+
+export interface Settings {
+    autoConnect: {
+        enabled: boolean;
+        serverId?: string;
+    };
+    proxyRules: ProxyRule[];
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+    autoConnect: {
+        enabled: false
+    },
+    proxyRules: []
+};
+
 export const IPC_CHANNELS = {
-    AUTH: {
-        START: 'auth:start',
-        COMPLETE: 'auth:complete',
-        REFRESH: 'auth:refresh'
-    },
-    VPN: {
-        CONNECT: 'vpn:connect',
-        DISCONNECT: 'vpn:disconnect',
-        STATUS: 'vpn:status'
-    },
     PROXY: {
         SET: 'proxy:set',
-        CLEAR: 'proxy:clear'
+        CLEAR: 'proxy:clear',
+        STATUS: 'proxy:status'
+    },
+    SETTINGS: {
+        SAVE: 'settings:save',
+        GET: 'settings:get'
     }
 } as const;

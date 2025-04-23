@@ -42,6 +42,30 @@ body {
     font-size: 24px;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.icon-button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 8px;
+    cursor: pointer;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.icon-button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
 #connection-status {
     padding: 8px 16px;
     border-radius: 4px;
@@ -394,4 +418,97 @@ button:disabled {
 
 .no-results p {
     margin: 0;
+}
+
+.settings-panel {
+    position: fixed;
+    top: 0;
+    right: -400px;
+    width: 400px;
+    height: 100vh;
+    background: var(--surface);
+    box-shadow: -2px 0 4px rgba(0, 0, 0, 0.2);
+    transition: right 0.3s ease-out;
+    z-index: 1000;
+}
+
+.settings-panel.open {
+    right: 0;
+}
+
+.settings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.settings-header h2 {
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.settings-content {
+    padding: 20px;
+    height: calc(100vh - 80px);
+    overflow-y: auto;
+}
+
+.settings-section {
+    margin-bottom: 32px;
+}
+
+.settings-section h3 {
+    color: var(--text-primary);
+    margin: 0 0 16px;
+    font-size: 16px;
+}
+
+.setting-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 0;
+    color: var(--text-primary);
+}
+
+.setting-item span {
+    flex: 1;
+}
+
+.setting-item input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--primary-color);
+}
+
+.setting-item select {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.setting-subitem {
+    margin-top: 8px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+}
+
+.setting-subitem input[type="text"] {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 8px;
+    border-radius: 4px;
+}
+
+.app-list {
+    margin-top: 12px;
+    max-height: 200px;
+    overflow-y: auto;
 }
