@@ -4,21 +4,38 @@
     <meta charset="UTF-8">
     <title>Proton VPN</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons">
 </head>
 <body>
     <div id="app">
         <div class="header">
-            <h1>Proton VPN</h1>
-            <div id="connection-status">Disconnected</div>
+            <h1>
+                <img src="https://protonvpn.com/favicon.ico" alt="ProtonVPN" height="24" style="vertical-align: middle; margin-right: 8px;">
+                Proton VPN
+            </h1>
+            <div id="connection-status">
+                <span class="status-indicator"></span>
+                <span class="status-text">Disconnected</span>
+            </div>
         </div>
         <div class="main-content">
-            <div id="server-list"></div>
+            <div class="server-filters">
+                <button class="filter-button active" data-filter="all">All Servers</button>
+                <button class="filter-button" data-filter="free">Free</button>
+                <button class="filter-button" data-filter="secure-core">Secure Core</button>
+                <button class="filter-button" data-filter="p2p">P2P</button>
+                <button class="filter-button" data-filter="tor">Tor</button>
+            </div>
+            <div id="server-list" class="server-list">
+                <!-- Server items will be inserted here -->
+            </div>
             <div class="controls">
                 <button id="connect-btn">Connect</button>
                 <button id="disconnect-btn" style="display: none;">Disconnect</button>
             </div>
         </div>
     </div>
+    <div class="notifications-container"></div>
     <script src="renderer.js"></script>
 </body>
 </html>

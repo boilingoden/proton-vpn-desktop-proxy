@@ -5,6 +5,7 @@ export interface VPNServer {
     port: number;
     country: string;
     load?: number;
+    features?: string[];
 }
 
 export interface VPNConnectionConfig {
