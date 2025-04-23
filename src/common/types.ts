@@ -7,13 +7,56 @@ export interface ProxyServer {
     protocol: 'http' | 'https' | 'socks4' | 'socks5';
     username?: string;
     password?: string;
+    bypassList?: string[];
+    status?: 'online' | 'offline' | 'maintenance';
+    features?: string[];
+    load?: number;
+    entryCountry?: string;
+    exitCountry?: string;
+    tier?: number;
+}
+
+export interface VPNServer {
+    id: string;
+    name: string;
+    host: string;
+    port: number;
+    country?: string;
+    city?: string;
+    protocol: 'http' | 'https' | 'socks4' | 'socks5';
+    username?: string;
+    password?: string;
+    bypassList?: string[];
+    status?: 'online' | 'offline' | 'maintenance';
+    features?: string[];
+    load?: number;
+    entryCountry?: string;
+    exitCountry?: string;
+    tier?: number;
 }
 
 export interface ProxyConfig {
     enabled: boolean;
-    server: ProxyServer | null;
-    autoSwitch: boolean;
-    rules: ProxyRule[];
+    host: string;
+    port: number;
+    protocol: 'http' | 'https';
+    username?: string;
+    password?: string;
+    bypassList?: string[];
+}
+
+export interface ProxySetConfig {
+    proxyRules: string;
+    proxyBypassRules?: string;
+    username?: string;
+    password?: string;
+}
+
+export interface ProxyAuthResponse {
+    Code: number;
+    Username: string;
+    Password: string;
+    Expire: number;
 }
 
 export interface ProxyRule {
@@ -26,12 +69,40 @@ export interface Settings {
         enabled: boolean;
         serverId?: string;
     };
+    killSwitch: boolean;
+    protocol: 'udp' | 'tcp';
+    dns: {
+        custom: boolean;
+        servers: string[];
+    };
+    splitTunneling: {
+        enabled: boolean;
+        mode: 'include' | 'exclude';
+        apps: string[];
+    };
     proxyRules: ProxyRule[];
+}
+
+export interface AuthConfig {
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
     autoConnect: {
         enabled: false
+    },
+    killSwitch: false,
+    protocol: 'udp',
+    dns: {
+        custom: false,
+        servers: []
+    },
+    splitTunneling: {
+        enabled: false,
+        mode: 'exclude',
+        apps: []
     },
     proxyRules: []
 };
@@ -45,5 +116,11 @@ export const IPC_CHANNELS = {
     SETTINGS: {
         SAVE: 'settings:save',
         GET: 'settings:get'
+    },
+    AUTH: {
+        START: 'auth:start'
+    },
+    EVENTS: {
+        PROXY_CONNECTION_LOST: 'proxy-connection-lost'
     }
 } as const;

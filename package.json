@@ -1,69 +1,61 @@
 {
-  "name": "proton-vpn-desktop",
+  "name": "proton-vpn-desktop-proxy",
   "version": "1.0.0",
-  "description": "Proton VPN Desktop Client",
+  "description": "ProtonVPN Desktop Proxy Application",
   "main": "dist/main/main.js",
   "scripts": {
-    "start": "npm run build && electron .",
-    "build": "tsc && npm run copy-assets",
-    "copy-assets": "cp -r src/renderer/*.html src/renderer/*.css dist/renderer/",
+    "start": "electron .",
+    "build": "tsc",
     "watch": "tsc -w",
-    "dev": "nodemon --watch 'src/**/*' --ext 'ts,html,css' --exec 'npm run start'",
-    "rebuild": "electron-rebuild",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder",
-    "dist:dir": "electron-builder --dir",
-    "dist:all": "electron-builder -mwl",
-    "publish": "electron-builder --publish always",
-    "postinstall": "electron-builder install-app-deps"
+    "dev": "tsc -w & electron .",
+    "package": "electron-builder",
+    "test": "jest",
+    "clean": "rimraf dist"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "electron-store": "^8.1.0",
+    "https-proxy-agent": "^5.0.1",
+    "node-fetch": "^2.6.9"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/node-fetch": "^2.6.3",
+    "electron": "latest",
+    "electron-builder": "^24.0.0",
+    "rimraf": "^5.0.0",
+    "typescript": "latest"
   },
   "build": {
-    "appId": "com.protonvpn.desktop",
-    "productName": "Proton VPN",
+    "appId": "com.proton.vpn.desktop.proxy",
+    "productName": "ProtonVPN Desktop Proxy",
     "directories": {
-      "output": "build"
+      "output": "release"
     },
     "files": [
       "dist/**/*",
-      "src/renderer/**/*",
       "package.json"
     ],
-    "linux": {
-      "target": [
-        "AppImage"
-      ],
-      "category": "Network",
-      "synopsis": "Proton VPN Desktop Client",
-      "maintainer": "ProtonVPN <contact@protonvpn.com>"
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": ["dmg", "zip"]
     },
-    "publish": {
-      "provider": "github",
-      "releaseType": "release"
+    "linux": {
+      "target": ["AppImage", "deb", "rpm"],
+      "category": "Network",
+      "maintainer": "Proton",
+      "asarUnpack": [
+        "node_modules/node-fetch/**/*",
+        "node_modules/https-proxy-agent/**/*"
+      ]
+    },
+    "win": {
+      "target": ["nsis"],
+      "asarUnpack": [
+        "node_modules/node-fetch/**/*",
+        "node_modules/https-proxy-agent/**/*"
+      ]
     }
-  },
-  "keywords": [
-    "proxy",
-    "proton",
-    "desktop"
-  ],
-  "author": {
-    "name": "ProtonVPN",
-    "email": "contact@protonvpn.com"
-  },
-  "license": "ISC",
-  "devDependencies": {
-    "@types/electron": "^1.4.38",
-    "@types/electron-store": "^1.3.1",
-    "@types/node": "^22.14.1",
-    "electron": "^35.2.0",
-    "electron-builder": "^26.0.12",
-    "electron-rebuild": "^3.2.9",
-    "node-gyp": "^11.2.0",
-    "nodemon": "^3.1.10",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
-  },
-  "dependencies": {
-    "electron-store": "^10.0.1"
   }
 }
