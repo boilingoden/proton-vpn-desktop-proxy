@@ -4,8 +4,14 @@ export interface VPNServer {
     host: string;
     port: number;
     country: string;
+    city?: string;
     load?: number;
+    tier: number;
     features?: string[];
+    entryCountry?: string;
+    exitCountry?: string;
+    status: 'online' | 'offline' | 'maintenance';
+    score?: number;
 }
 
 export interface VPNConnectionConfig {

@@ -1,6 +1,7 @@
 import { ipcRenderer } from 'electron';
 import { VPNServer, VPNConnectionConfig, IPC_CHANNELS } from '../common/types';
 import { getAuthData, saveAuthData, isTokenExpired, getProxyConfig } from '../common/utils';
+import { ProtonVPNAPI } from '../common/api';
 
 class NotificationManager {
     private container: HTMLDivElement;
@@ -58,6 +59,8 @@ class VPNClientUI {
     private currentServer: VPNServer | null = null;
     private currentFilter: string = 'all';
     private notifications: NotificationManager;
+    private servers: VPNServer[] = [];
+    private searchInput: HTMLInputElement;
 
     constructor() {
         this.connectButton = document.getElementById('connect-btn') as HTMLButtonElement;
@@ -68,6 +71,7 @@ class VPNClientUI {
         this.filterButtons = document.querySelectorAll('.filter-button');
 
         this.notifications = new NotificationManager();
+        this.searchInput = document.getElementById('server-search') as HTMLInputElement;
 
         this.initializeUI();
         this.setupEventListeners();
@@ -75,70 +79,103 @@ class VPNClientUI {
     }
 
     private async initializeUI() {
-        // In a full implementation, fetch server list from API
-        const demoServers: VPNServer[] = [
-            {
-                id: '1',
-                name: 'US Server 1',
-                host: 'us1.protonvpn.com',
-                port: 443,
-                country: 'US',
-                load: 45,
-                features: ['free', 'p2p']
-            },
-            {
-                id: '2',
-                name: 'Netherlands Server 1',
-                host: 'nl1.protonvpn.com',
-                port: 443,
-                country: 'NL',
-                load: 32,
-                features: ['secure-core', 'tor']
-            }
-        ];
-
-        this.renderServerList(demoServers);
+        await this.loadServers();
         await this.checkAuthStatus();
     }
 
-    private renderServerList(servers: VPNServer[]) {
-        const filteredServers = this.currentFilter === 'all' 
-            ? servers 
-            : servers.filter(server => server.features?.includes(this.currentFilter));
+    private async loadServers() {
+        try {
+            this.setAppLoading(true);
+            this.servers = await ProtonVPNAPI.getServers();
+            this.filterAndRenderServers();
+        } catch (error) {
+            this.showError('Failed to load servers');
+            console.error('Failed to load servers:', error);
+        } finally {
+            this.setAppLoading(false);
+        }
+    }
 
+    private filterAndRenderServers() {
+        const searchTerm = this.searchInput.value.toLowerCase();
+        const filteredServers = this.servers.filter(server => {
+            const matchesFilter = this.currentFilter === 'all' || server.features?.includes(this.currentFilter);
+            const matchesSearch = searchTerm === '' || 
+                server.name.toLowerCase().includes(searchTerm) ||
+                server.country.toLowerCase().includes(searchTerm) ||
+                server.features?.some(f => f.toLowerCase().includes(searchTerm)) ||
+                server.city?.toLowerCase().includes(searchTerm);
+
+            return matchesFilter && matchesSearch;
+        });
+
+        this.renderServerList(filteredServers);
+    }
+
+    private renderServerList(servers: VPNServer[]) {
         this.serverList.innerHTML = '';
-        filteredServers.forEach(server => {
+        
+        if (servers.length === 0) {
+            this.serverList.innerHTML = `
+                <div class="no-results">
+                    <span class="material-icons">search_off</span>
+                    <p>No servers found matching your criteria</p>
+                </div>
+            `;
+            return;
+        }
+
+        servers.forEach(server => {
             const serverElement = document.createElement('div');
             serverElement.className = 'server-item';
+            if (server.status !== 'online') {
+                serverElement.classList.add('offline');
+            }
+            
             serverElement.innerHTML = `
                 <div class="server-icon">
-                    <span class="material-icons">public</span>
+                    <span class="material-icons">${this.getServerIcon(server)}</span>
                 </div>
                 <div class="server-info">
                     <h3>${server.name}</h3>
-                    <p>${server.country}</p>
+                    <p>${server.city ? `${server.city}, ` : ''}${server.country}</p>
                 </div>
                 <div class="server-stats">
-                    <div>Load: ${server.load}%</div>
-                    ${server.features ? `<div>${server.features.join(' • ')}</div>` : ''}
+                    <div class="server-load">
+                        <span class="material-icons">speed</span>
+                        Load: ${server.load ?? 0}%
+                    </div>
+                    ${server.features?.length ? `
+                        <div class="server-features">
+                            ${server.features.map(f => `<span class="feature-tag">${f}</span>`).join('')}
+                        </div>
+                    ` : ''}
+                    ${server.status !== 'online' ? `
+                        <div class="server-status">${server.status}</div>
+                    ` : ''}
                 </div>
             `;
-            serverElement.addEventListener('click', () => this.selectServer(server));
+            
+            if (server.status === 'online') {
+                serverElement.addEventListener('click', () => this.selectServer(server));
+            }
+            
             this.serverList.appendChild(serverElement);
         });
     }
 
-    private setLoading(isLoading: boolean, button: HTMLButtonElement) {
-        button.disabled = isLoading;
-        if (isLoading) {
-            const overlay = document.createElement('div');
-            overlay.className = 'loading-overlay';
-            overlay.innerHTML = '<div class="loading-spinner"></div>';
-            button.appendChild(overlay);
-        } else {
-            const overlay = button.querySelector('.loading-overlay');
-            overlay?.remove();
-        }
+    private getServerIcon(server: VPNServer): string {
+        if (server.status !== 'online') return 'error_outline';
+        if (server.features?.includes('secure-core')) return 'security';
+        if (server.features?.includes('tor')) return 'vpn_lock';
+        if (server.features?.includes('p2p')) return 'swap_horiz';
+        return 'public';
+    }
+
+    private setAppLoading(isLoading: boolean) {
+        this.serverList.classList.toggle('loading', isLoading);
+        this.searchInput.disabled = isLoading;
+        this.filterButtons.forEach(btn => btn.disabled = isLoading);
     }
 
     private async checkAuthStatus() {
@@ -153,12 +190,13 @@ class VPNClientUI {
     private setupEventListeners() {
         this.connectButton.addEventListener('click', () => this.connect());
         this.disconnectButton.addEventListener('click', () => this.disconnect());
+        this.searchInput.addEventListener('input', () => this.filterAndRenderServers());
         this.filterButtons.forEach(button => {
             button.addEventListener('click', () => {
                 this.filterButtons.forEach(btn => btn.classList.remove('active'));
                 button.classList.add('active');
                 this.currentFilter = button.dataset.filter || 'all';
-                this.initializeUI();
+                this.filterAndRenderServers();
             });
         });
     }
@@ -270,6 +308,19 @@ class VPNClientUI {
         this.statusElement.classList.toggle('status-connected', isConnected);
         this.connectButton.style.display = isConnected ? 'none' : 'block';
         this.disconnectButton.style.display = isConnected ? 'block' : 'none';
+    }
+
+    private setLoading(isLoading: boolean, button: HTMLButtonElement) {
+        button.disabled = isLoading;
+        if (isLoading) {
+            const overlay = document.createElement('div');
+            overlay.className = 'loading-overlay';
+            overlay.innerHTML = '<div class="loading-spinner"></div>';
+            button.appendChild(overlay);
+        } else {
+            const overlay = button.querySelector('.loading-overlay');
+            overlay?.remove();
+        }
     }
 }
 
