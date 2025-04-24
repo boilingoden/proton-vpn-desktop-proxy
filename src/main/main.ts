@@ -33,6 +33,79 @@ class MainProcess {
     private static readonly LOGICAL_CHECK_INTERVAL = 300000; // 5 minutes
     private static readonly NETWORK_CHECK_INTERVAL = 10000; // 10 seconds
 
+    constructor() {
+        this.init();
+    }
+
+    private init() {
+        app.whenReady().then(() => {
+            this.createMainWindow();
+            this.setupApp();
+            
+            app.on('activate', () => {
+                if (BrowserWindow.getAllWindows().length === 0) {
+                    this.createMainWindow();
+                }
+            });
+
+            // Handle auto-connect if enabled
+            this.handleAutoConnect();
+        });
+
+        app.on('window-all-closed', () => {
+            if (process.platform !== 'darwin') {
+                this.cleanup();
+                app.quit();
+            }
+        });
+    }
+
+    private createMainWindow() {
+        this.mainWindow = new BrowserWindow({
+            width: 900,
+            height: 700,
+            webPreferences: {
+                nodeIntegration: false,
+                contextIsolation: true,
+                preload: join(__dirname, '../../dist/preload/preload.js')
+            },
+            backgroundColor: '#1c1b24',
+            show: false
+        });
+
+        // Load the index.html file from webpack build
+        this.mainWindow.loadFile(join(__dirname, '../../dist/renderer/index.html'));
+
+        // Enable DevTools in development
+        if (process.env.NODE_ENV === 'development') {
+            this.mainWindow.webContents.openDevTools();
+        }
+
+        // Show window when ready
+        this.mainWindow.once('ready-to-show', () => {
+            this.mainWindow?.show();
+        });
+
+        // Set up IPC handlers
+        this.setupIpcHandlers();
+    }
+
+    private setupIpcHandlers() {
+        ipcMain.handle(IPC_CHANNELS.PROXY.SET, async (_event, config) => {
+            return await this.setSystemProxy(config);
+        });
+
+        ipcMain.handle(IPC_CHANNELS.PROXY.CLEAR, async () => {
+            return await this.clearSystemProxy();
+        });
+
+        ipcMain.handle(IPC_CHANNELS.PROXY.STATUS, async () => {
+            return await this.checkProxyStatus();
+        });
+
+        // ... rest of the existing code ...
+    }
+
     private async updateProxyError(error: ProxyError) {
         const config = getProxyConfig();
         if (config) {
