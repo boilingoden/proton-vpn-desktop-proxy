@@ -159,13 +159,9 @@ export const IPC_CHANNELS = {
         CLEAR: 'proxy:clear',
         STATUS: 'proxy:status'
     },
-    SETTINGS: {
-        SAVE: 'settings:save',
-        GET: 'settings:get',
-        APPLY: 'settings:apply'
-    },
     AUTH: {
         START: 'auth:start',
+        CALLBACK: 'auth:callback', 
         REFRESH: 'auth:refresh',
         STATUS: 'auth:status'
     },
@@ -173,7 +169,7 @@ export const IPC_CHANNELS = {
         PROXY_CONNECTION_LOST: 'proxy-connection-lost',
         CREDENTIALS_EXPIRED: 'credentials-expired',
         SETTINGS_CHANGED: 'settings-changed',
-        NETWORK_STATUS_CHANGED: 'network-status-changed',
-        SERVER_STATUS_CHANGED: 'server-status-changed'
+        AUTH_SUCCESS: 'auth:success',
+        AUTH_FAILED: 'auth:failed'
     }
 } as const;

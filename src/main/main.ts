@@ -90,6 +90,58 @@ class MainProcess {
         });
     }
 
+    private async handleAuthWindow(authUrl: string): Promise<string | null> {
+        if (this.authWindow) {
+            this.authWindow.focus();
+            return null;
+        }
+
+        return new Promise((resolve) => {
+            this.authWindow = new BrowserWindow({
+                width: 800,
+                height: 700,
+                parent: this.mainWindow || undefined,
+                modal: true,
+                show: false,
+                webPreferences: {
+                    nodeIntegration: false,
+                    contextIsolation: true,
+                    webSecurity: true
+                }
+            });
+
+            // Handle auth redirect
+            this.authWindow.webContents.on('will-redirect', (_event, url) => {
+                if (url.startsWith('https://account.protonvpn.com/callback')) {
+                    resolve(url);
+                    if (this.authWindow) {
+                        this.authWindow.close();
+                    }
+                }
+            });
+
+            // Handle window closed
+            this.authWindow.on('closed', () => {
+                this.authWindow = null;
+                resolve(null);
+            });
+
+            // Show window when ready
+            this.authWindow.once('ready-to-show', () => {
+                this.authWindow?.show();
+            });
+
+            // Load auth URL
+            this.authWindow.loadURL(authUrl).catch(err => {
+                console.error('Failed to load auth URL:', err);
+                resolve(null);
+                if (this.authWindow) {
+                    this.authWindow.close();
+                }
+            });
+        });
+    }
+
     private setupIpcHandlers() {
         ipcMain.handle(IPC_CHANNELS.PROXY.SET, async (_event, config) => {
             return await this.setSystemProxy(config);
@@ -103,49 +155,12 @@ class MainProcess {
             return await this.checkProxyStatus();
         });
 
-        // Add authentication handler
+        // Update auth handler
         ipcMain.handle(IPC_CHANNELS.AUTH.START, async (_event, authUrl) => {
-            if (this.authWindow) {
-                this.authWindow.focus();
-                return;
-            }
-
-            return new Promise((resolve) => {
-                // Create auth window
-                this.authWindow = new BrowserWindow({
-                    width: 800,
-                    height: 600,
-                    show: false,
-                    webPreferences: {
-                        nodeIntegration: false,
-                        contextIsolation: true
-                    }
-                });
-
-                // Listen for the callback URL
-                this.authWindow.webContents.on('will-navigate', (_event, url) => {
-                    if (url.startsWith('https://account.protonvpn.com/callback')) {
-                        if (this.authWindow) {
-                            this.authWindow.destroy();
-                            this.authWindow = null;
-                        }
-                        resolve(url);
-                    }
-                });
-
-                // Handle window closed without auth
-                this.authWindow.on('closed', () => {
-                    this.authWindow = null;
-                    resolve(null);
-                });
-
-                // Load auth URL
-                this.authWindow.loadURL(authUrl);
-                this.authWindow.show();
-            });
+            return this.handleAuthWindow(authUrl);
         });
 
-        // ... rest of the existing IPC handlers ...
+        // ...rest of existing handlers...
     }
 
     private async updateProxyError(error: ProxyError) {

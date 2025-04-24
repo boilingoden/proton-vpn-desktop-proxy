@@ -7,6 +7,7 @@ declare global {
                 on(channel: string, func: (...args: any[]) => void): void;
                 once(channel: string, func: (...args: any[]) => void): void;
                 removeAllListeners(channel: string): void;
+                handleAuthCallback(callback: (callbackUrl: string) => void): void;
             };
         };
     }
@@ -960,41 +961,67 @@ class VPNClientUI {
     }
 
     private async handleAuth(): Promise<boolean> {
-        const params = new URLSearchParams({
-            client_id: 'proton-vpn-browser',
-            redirect_uri: 'https://account.protonvpn.com/callback',
-            state: Math.random().toString(36).substring(2),
-            response_type: 'token',
-            scope: 'vpn'
-        });
-
-        const authUrl = `https://account.protonvpn.com/authorize?${params.toString()}`;
-
-        try {
-            this.signInButton.classList.add('loading');
-            const result = await window.electron.ipcRenderer.invoke(IPC.AUTH.START, authUrl);
-            if (result) {
-                const urlParams = new URLSearchParams(result.split('?')[1]);
-                const accessToken = urlParams.get('access_token');
-                const refreshToken = urlParams.get('refresh_token');
-                const expiresIn = urlParams.get('expires_in');
+        return new Promise((resolve) => {
+            try {
+                this.signInButton.classList.add('loading');
                 
-                if (accessToken && refreshToken && expiresIn) {
-                    saveAuthData({
-                        accessToken,
-                        refreshToken,
-                        expiresAt: Date.now() + (Number(expiresIn) * 1000)
+                // Set up auth callback handler before opening auth window
+                window.electron.ipcRenderer.handleAuthCallback((callbackUrl) => {
+                    try {
+                        const hashParams = new URL(callbackUrl).hash.substring(1);
+                        const urlParams = new URLSearchParams(hashParams);
+                        const accessToken = urlParams.get('access_token');
+                        const refreshToken = urlParams.get('refresh_token');
+                        const expiresIn = urlParams.get('expires_in');
+                        
+                        if (accessToken && refreshToken && expiresIn) {
+                            saveAuthData({
+                                accessToken,
+                                refreshToken,
+                                expiresAt: Date.now() + (Number(expiresIn) * 1000)
+                            });
+                            resolve(true);
+                        } else {
+                            console.error('Missing auth parameters');
+                            this.showError('Authentication failed: Invalid response');
+                            resolve(false);
+                        }
+                    } catch (error) {
+                        console.error('Auth callback error:', error);
+                        this.showError('Authentication failed');
+                        resolve(false);
+                    } finally {
+                        this.signInButton.classList.remove('loading');
+                    }
+                });
+
+                // Construct auth URL
+                const params = new URLSearchParams({
+                    client_id: 'proton-vpn-browser',
+                    redirect_uri: 'https://account.protonvpn.com/callback',
+                    state: Math.random().toString(36).substring(2),
+                    response_type: 'token',
+                    scope: 'vpn'
+                });
+
+                const authUrl = `https://account.protonvpn.com/authorize?${params.toString()}`;
+                
+                // Open auth window
+                window.electron.ipcRenderer.invoke(IPC.AUTH.START, authUrl)
+                    .catch(error => {
+                        console.error('Failed to open auth window:', error);
+                        this.showError('Failed to open authentication window');
+                        this.signInButton.classList.remove('loading');
+                        resolve(false);
                     });
-                    return true;
-                }
+
+            } catch (error) {
+                console.error('Auth initialization failed:', error);
+                this.showError('Authentication failed');
+                this.signInButton.classList.remove('loading');
+                resolve(false);
             }
-        } catch (error) {
-            console.error('Authentication failed:', error);
-            this.showError('Authentication failed');
-        } finally {
-            this.signInButton.classList.remove('loading');
-        }
-        return false;
+        });
     }
 
     private showError(message: string) {

@@ -1,22 +1,18 @@
 {
     "compilerOptions": {
         "target": "ES2020",
-        "module": "CommonJS",
+        "module": "commonjs",
         "moduleResolution": "node",
-        "strict": true,
         "esModuleInterop": true,
-        "skipLibCheck": true,
-        "forceConsistentCasingInFileNames": true,
-        "outDir": "dist",
         "sourceMap": true,
+        "outDir": "./dist",
+        "strict": true,
         "baseUrl": ".",
         "paths": {
-            "*": ["node_modules/*"]
+            "@common/*": ["src/common/*"]
         },
-        "typeRoots": [
-            "./node_modules/@types"
-        ],
-        "types": ["node", "electron"]
+        "skipLibCheck": true,
+        "types": ["electron", "node"]
     },
     "include": [
         "src/**/*"

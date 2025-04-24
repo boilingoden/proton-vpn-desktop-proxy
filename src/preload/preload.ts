@@ -1,7 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-// Expose protected methods that allow the renderer process to use
-// the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld(
     'electron',
     {
@@ -15,6 +13,10 @@ contextBridge.exposeInMainWorld(
             },
             removeAllListeners: (channel: string) => {
                 ipcRenderer.removeAllListeners(channel);
+            },
+            // Add auth callback listener
+            handleAuthCallback: (callback: (url: string) => void) => {
+                ipcRenderer.on('auth:callback', (_event, url) => callback(url));
             }
         }
     }
