@@ -88,14 +88,15 @@ const mainConfig = {
     },
     resolve: {
         extensions: ['.ts', '.js'],
-        modules: ['node_modules'],
+        modules: [path.resolve(__dirname, 'src'), 'node_modules'],
         alias: {
-            '@common': path.resolve(__dirname, 'src/common')
+            '@': path.resolve(__dirname, 'src')
         }
     },
     output: {
         filename: 'main.js',
-        path: path.resolve(__dirname, 'dist/main')
+        path: path.resolve(__dirname, 'dist/main'),
+        libraryTarget: 'commonjs2'
     }
 };
 
@@ -131,34 +132,4 @@ const preloadConfig = {
     }
 };
 
-const commonConfig = {
-    mode: 'development',
-    entry: {
-        types: './src/common/types.ts',
-        api: './src/common/api.ts',
-        utils: './src/common/utils.ts'
-    },
-    target: 'node',
-    devtool: 'source-map',
-    module: {
-        rules: [
-            {
-                test: /\.ts$/,
-                use: 'ts-loader',
-                exclude: /node_modules/
-            }
-        ]
-    },
-    resolve: {
-        extensions: ['.ts', '.js']
-    },
-    output: {
-        filename: '[name].js',
-        path: path.resolve(__dirname, 'dist/common'),
-        library: {
-            type: 'commonjs2'
-        }
-    }
-};
-
-export default [rendererConfig, mainConfig, preloadConfig, commonConfig];
+export default [rendererConfig, mainConfig, preloadConfig];
