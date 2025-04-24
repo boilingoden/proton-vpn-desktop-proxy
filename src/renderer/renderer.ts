@@ -960,7 +960,16 @@ class VPNClientUI {
     }
 
     private async handleAuth(): Promise<boolean> {
-        const authUrl = 'https://account.protonvpn.com/authorize';
+        const params = new URLSearchParams({
+            client_id: 'proton-vpn-browser',
+            redirect_uri: 'https://account.protonvpn.com/callback',
+            state: Math.random().toString(36).substring(2),
+            response_type: 'token',
+            scope: 'vpn'
+        });
+
+        const authUrl = `https://account.protonvpn.com/authorize?${params.toString()}`;
+
         try {
             this.signInButton.classList.add('loading');
             const result = await window.electron.ipcRenderer.invoke(IPC.AUTH.START, authUrl);

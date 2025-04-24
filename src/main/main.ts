@@ -43,6 +43,7 @@ class MainProcess {
         app.whenReady().then(() => {
             this.createMainWindow();
             this.setupApp();
+            this.setupIpcHandlers();
             
             app.on('activate', () => {
                 if (BrowserWindow.getAllWindows().length === 0) {
@@ -87,9 +88,6 @@ class MainProcess {
         this.mainWindow.once('ready-to-show', () => {
             this.mainWindow?.show();
         });
-
-        // Set up IPC handlers
-        this.setupIpcHandlers();
     }
 
     private setupIpcHandlers() {
@@ -105,7 +103,49 @@ class MainProcess {
             return await this.checkProxyStatus();
         });
 
-        // ... rest of the existing code ...
+        // Add authentication handler
+        ipcMain.handle(IPC_CHANNELS.AUTH.START, async (_event, authUrl) => {
+            if (this.authWindow) {
+                this.authWindow.focus();
+                return;
+            }
+
+            return new Promise((resolve) => {
+                // Create auth window
+                this.authWindow = new BrowserWindow({
+                    width: 800,
+                    height: 600,
+                    show: false,
+                    webPreferences: {
+                        nodeIntegration: false,
+                        contextIsolation: true
+                    }
+                });
+
+                // Listen for the callback URL
+                this.authWindow.webContents.on('will-navigate', (_event, url) => {
+                    if (url.startsWith('https://account.protonvpn.com/callback')) {
+                        if (this.authWindow) {
+                            this.authWindow.destroy();
+                            this.authWindow = null;
+                        }
+                        resolve(url);
+                    }
+                });
+
+                // Handle window closed without auth
+                this.authWindow.on('closed', () => {
+                    this.authWindow = null;
+                    resolve(null);
+                });
+
+                // Load auth URL
+                this.authWindow.loadURL(authUrl);
+                this.authWindow.show();
+            });
+        });
+
+        // ... rest of the existing IPC handlers ...
     }
 
     private async updateProxyError(error: ProxyError) {
