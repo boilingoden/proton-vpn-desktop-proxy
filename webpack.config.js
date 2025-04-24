@@ -1,6 +1,10 @@
-const path = require('path');
-const HtmlWebpackPlugin = require('html-webpack-plugin');
-const CopyWebpackPlugin = require('copy-webpack-plugin');
+import path from 'path';
+import HtmlWebpackPlugin from 'html-webpack-plugin';
+import CopyWebpackPlugin from 'copy-webpack-plugin';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const rendererConfig = {
     mode: 'development',
@@ -58,7 +62,6 @@ const rendererConfig = {
     output: {
         filename: 'renderer.js',
         path: path.resolve(__dirname, 'dist/renderer'),
-        // Use modules for browser environment
         library: {
             type: 'module'
         },
@@ -78,13 +81,22 @@ const mainConfig = {
         rules: [
             {
                 test: /\.ts$/,
-                use: 'ts-loader',
+                use: {
+                    loader: 'ts-loader',
+                    options: {
+                        compilerOptions: {
+                            module: 'esnext',
+                            moduleResolution: 'node'
+                        }
+                    }
+                },
                 exclude: /node_modules/
             }
         ]
     },
     resolve: {
-        extensions: ['.ts', '.js']
+        extensions: ['.ts', '.js'],
+        modules: [path.resolve(__dirname, 'src'), 'node_modules']
     },
     output: {
         filename: 'main.js',
@@ -101,13 +113,22 @@ const preloadConfig = {
         rules: [
             {
                 test: /\.ts$/,
-                use: 'ts-loader',
-                exclude: /node_modules/,
+                use: {
+                    loader: 'ts-loader',
+                    options: {
+                        compilerOptions: {
+                            module: 'esnext',
+                            moduleResolution: 'node'
+                        }
+                    }
+                },
+                exclude: /node_modules/
             }
         ]
     },
     resolve: {
-        extensions: ['.ts', '.js']
+        extensions: ['.ts', '.js'],
+        modules: [path.resolve(__dirname, 'src'), 'node_modules']
     },
     output: {
         filename: 'preload.js',
@@ -115,4 +136,4 @@ const preloadConfig = {
     }
 };
 
-module.exports = [rendererConfig, mainConfig, preloadConfig];
+export default [rendererConfig, mainConfig, preloadConfig];

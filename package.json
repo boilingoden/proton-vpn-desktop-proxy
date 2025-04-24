@@ -2,6 +2,7 @@
   "name": "proton-vpn-desktop-proxy",
   "version": "1.0.0",
   "description": "ProtonVPN Desktop Proxy Application",
+  "type": "module",
   "main": "dist/main/main.js",
   "scripts": {
     "start": "electron .",
