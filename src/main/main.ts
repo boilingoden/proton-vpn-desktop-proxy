@@ -90,55 +90,30 @@ class MainProcess {
         });
     }
 
-    private async handleAuthWindow(authUrl: string): Promise<string | null> {
-        if (this.authWindow) {
-            this.authWindow.focus();
-            return null;
-        }
-
-        return new Promise((resolve) => {
-            this.authWindow = new BrowserWindow({
-                width: 800,
-                height: 700,
-                parent: this.mainWindow || undefined,
-                modal: true,
-                show: false,
-                webPreferences: {
-                    nodeIntegration: false,
-                    contextIsolation: true,
-                    webSecurity: true
+    private handleAuthWindowEvents(authWindow: BrowserWindow) {
+        // Handle actual redirect after login
+        authWindow.webContents.on('did-navigate', (event, url) => {
+            if (url.startsWith('https://account.protonvpn.com/callback')) {
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send(IPC_CHANNELS.AUTH.CALLBACK, url);
                 }
-            });
+                authWindow.close();
+            }
+        });
 
-            // Handle auth redirect
-            this.authWindow.webContents.on('will-redirect', (_event, url) => {
-                if (url.startsWith('https://account.protonvpn.com/callback')) {
-                    resolve(url);
-                    if (this.authWindow) {
-                        this.authWindow.close();
-                    }
+        // Also handle hash-based redirects
+        authWindow.webContents.on('did-navigate-in-page', (event, url) => {
+            if (url.startsWith('https://account.protonvpn.com/callback')) {
+                if (this.mainWindow) {
+                    this.mainWindow.webContents.send(IPC_CHANNELS.AUTH.CALLBACK, url);
                 }
-            });
+                authWindow.close();
+            }
+        });
 
-            // Handle window closed
-            this.authWindow.on('closed', () => {
-                this.authWindow = null;
-                resolve(null);
-            });
-
-            // Show window when ready
-            this.authWindow.once('ready-to-show', () => {
-                this.authWindow?.show();
-            });
-
-            // Load auth URL
-            this.authWindow.loadURL(authUrl).catch(err => {
-                console.error('Failed to load auth URL:', err);
-                resolve(null);
-                if (this.authWindow) {
-                    this.authWindow.close();
-                }
-            });
+        // Handle window closed without auth
+        authWindow.on('closed', () => {
+            this.authWindow = null;
         });
     }
 
@@ -156,8 +131,26 @@ class MainProcess {
         });
 
         // Update auth handler
-        ipcMain.handle(IPC_CHANNELS.AUTH.START, async (_event, authUrl) => {
-            return this.handleAuthWindow(authUrl);
+        ipcMain.handle(IPC_CHANNELS.AUTH.START, (_event, authUrl) => {
+            if (this.authWindow) {
+                this.authWindow.focus();
+                return;
+            }
+
+            this.authWindow = new BrowserWindow({
+                width: 800,
+                height: 700,
+                parent: this.mainWindow || undefined,
+                modal: true,
+                webPreferences: {
+                    nodeIntegration: false,
+                    contextIsolation: true,
+                    webSecurity: true
+                }
+            });
+
+            this.handleAuthWindowEvents(this.authWindow);
+            return this.authWindow.loadURL(authUrl);
         });
 
         // ...rest of existing handlers...

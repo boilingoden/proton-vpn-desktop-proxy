@@ -1,19 +1,8 @@
-// Use contextBridge to access electron APIs safely
-declare global {
-    interface Window {
-        electron: {
-            ipcRenderer: {
-                invoke(channel: string, ...args: any[]): Promise<any>;
-                on(channel: string, func: (...args: any[]) => void): void;
-                once(channel: string, func: (...args: any[]) => void): void;
-                removeAllListeners(channel: string): void;
-                handleAuthCallback(callback: (callbackUrl: string) => void): void;
-            };
-        };
-    }
-}
+// Import types and enums properly
+import type { VPNServer, Settings, AuthConfig, ProxyConfig, ProxyError } from '../common/types';
+import { ProxyErrorType, ErrorCode, IPC_CHANNELS } from '../common/types';
 
-import { VPNServer, Settings, AuthConfig, ProxyConfig, ProxyError, ProxyErrorType, ErrorCode } from '../common/types';
+// Rest of imports
 import { 
     getAuthData, 
     saveAuthData, 
@@ -30,28 +19,20 @@ import {
 } from '../common/utils';
 import { ProtonVPNAPI } from '../common/api';
 
-// Use constant values for IPC channels to avoid type issues
-const IPC = {
-    PROXY: {
-        SET: 'proxy:set',
-        CLEAR: 'proxy:clear',
-        STATUS: 'proxy:status'
-    },
-    SETTINGS: {
-        SAVE: 'settings:save',
-        GET: 'settings:get',
-        APPLY: 'settings:apply'
-    },
-    AUTH: {
-        START: 'auth:start',
-        REFRESH: 'auth:refresh'
-    },
-    EVENTS: {
-        PROXY_CONNECTION_LOST: 'proxy-connection-lost',
-        CREDENTIALS_EXPIRED: 'credentials-expired',
-        SETTINGS_CHANGED: 'settings-changed'
+// Window type definition
+declare global {
+    interface Window {
+        electron: {
+            ipcRenderer: {
+                invoke(channel: string, ...args: any[]): Promise<any>;
+                on(channel: string, func: (...args: any[]) => void): void;
+                once(channel: string, func: (...args: any[]) => void): void;
+                removeAllListeners(channel: string): void;
+                handleAuthCallback(callback: (callbackUrl: string) => void): void;
+            };
+        };
     }
-} as const;
+}
 
 class NotificationManager {
     private container: HTMLDivElement;
@@ -318,7 +299,7 @@ class VPNClientUI {
 
     private setupProxyEventListeners() {
         // Listen for proxy connection lost events from main process
-        window.electron.ipcRenderer.on(IPC.EVENTS.PROXY_CONNECTION_LOST, async (error?: ProxyError) => {
+        window.electron.ipcRenderer.on(IPC_CHANNELS.EVENTS.PROXY_CONNECTION_LOST, async (error?: ProxyError) => {
             if (!this.isConnected) return; // Avoid duplicate handling
 
             if (error) {
@@ -356,13 +337,13 @@ class VPNClientUI {
         });
 
         // Handle credential expiration
-        window.electron.ipcRenderer.on(IPC.EVENTS.CREDENTIALS_EXPIRED, async () => {
+        window.electron.ipcRenderer.on(IPC_CHANNELS.EVENTS.CREDENTIALS_EXPIRED, async () => {
             if (!this.isConnected) return;
 
             try {
                 const credentials = await this.getProxyCredentials();
                 if (credentials && this.currentServer) {
-                    const success = await window.electron.ipcRenderer.invoke(IPC.PROXY.SET, {
+                    const success = await window.electron.ipcRenderer.invoke(IPC_CHANNELS.PROXY.SET, {
                         host: this.currentServer.host,
                         port: this.currentServer.port,
                         username: credentials.username,
@@ -482,10 +463,10 @@ class VPNClientUI {
         // Try to find an alternative server like the extension does
         try {
             const servers = await ProtonVPNAPI.getServers();
-            const alternativeServer = servers.find(s => 
+            const alternativeServer = servers.find((s: VPNServer) => 
                 s.status === 'online' && 
                 s.id !== this.currentServer?.id &&
-                s.features?.every(f => this.currentServer?.features?.includes(f))
+                s.features?.every((f: string) => this.currentServer?.features?.includes(f))
             );
 
             if (alternativeServer) {
@@ -526,7 +507,7 @@ class VPNClientUI {
                         };
                     }
 
-                    const success = await window.electron.ipcRenderer.invoke(IPC.PROXY.SET, {
+                    const success = await window.electron.ipcRenderer.invoke(IPC_CHANNELS.PROXY.SET, {
                         host: this.currentServer!.host,
                         port: this.currentServer!.port,
                         username: validCreds.Username,
@@ -683,7 +664,7 @@ class VPNClientUI {
         });
 
         // Add proxy error handling
-        window.electron.ipcRenderer.on(IPC.EVENTS.PROXY_CONNECTION_LOST, async () => {
+        window.electron.ipcRenderer.on(IPC_CHANNELS.EVENTS.PROXY_CONNECTION_LOST, async () => {
             await this.handleProxyError(new Error('Proxy connection lost'));
         });
     }
@@ -714,7 +695,7 @@ class VPNClientUI {
                 }
 
                 // Update proxy with new credentials
-                const success = await window.electron.ipcRenderer.invoke(IPC.PROXY.SET, {
+                const success = await window.electron.ipcRenderer.invoke(IPC_CHANNELS.PROXY.SET, {
                     host: this.currentServer.host,
                     port: this.currentServer.port,
                     username: credentials.username,
@@ -761,7 +742,7 @@ class VPNClientUI {
         }
 
         // Check proxy status
-        const proxyStatus = await window.electron.ipcRenderer.invoke(IPC.PROXY.STATUS);
+        const proxyStatus = await window.electron.ipcRenderer.invoke(IPC_CHANNELS.PROXY.STATUS);
         if (!proxyStatus) {
             this.isConnected = false;
             this.updateUI(false);
@@ -873,7 +854,7 @@ class VPNClientUI {
                 this.settingsManager.saveSettings(settings);
             }
 
-            const success = await window.electron.ipcRenderer.invoke(IPC.PROXY.SET, {
+            const success = await window.electron.ipcRenderer.invoke(IPC_CHANNELS.PROXY.SET, {
                 host: this.currentServer.host,
                 port: this.currentServer.port,
                 username: credentials.username,
@@ -916,7 +897,7 @@ class VPNClientUI {
             this.clearTimers();
             this.connectionState = ConnectionState.DISCONNECTED;
             
-            const success = await window.electron.ipcRenderer.invoke(IPC.PROXY.CLEAR);
+            const success = await window.electron.ipcRenderer.invoke(IPC_CHANNELS.PROXY.CLEAR);
             if (success) {
                 this.isConnected = false;
                 this.updateUI(false);
@@ -961,15 +942,17 @@ class VPNClientUI {
     }
 
     private async handleAuth(): Promise<boolean> {
-        return new Promise((resolve) => {
+        return new Promise<boolean>((resolve) => {
             try {
                 this.signInButton.classList.add('loading');
                 
-                // Set up auth callback handler before opening auth window
-                window.electron.ipcRenderer.handleAuthCallback((callbackUrl) => {
+                // Setup auth callback handler
+                window.electron.ipcRenderer.on(IPC_CHANNELS.AUTH.CALLBACK, (url: string) => {
                     try {
-                        const hashParams = new URL(callbackUrl).hash.substring(1);
+                        const urlObj = new URL(url);
+                        const hashParams = urlObj.hash.substring(1);
                         const urlParams = new URLSearchParams(hashParams);
+                        
                         const accessToken = urlParams.get('access_token');
                         const refreshToken = urlParams.get('refresh_token');
                         const expiresIn = urlParams.get('expires_in');
@@ -980,6 +963,7 @@ class VPNClientUI {
                                 refreshToken,
                                 expiresAt: Date.now() + (Number(expiresIn) * 1000)
                             });
+                            this.showSuccess('Successfully signed in');
                             resolve(true);
                         } else {
                             console.error('Missing auth parameters');
@@ -995,19 +979,20 @@ class VPNClientUI {
                     }
                 });
 
-                // Construct auth URL
+                // Construct auth URL with proper parameters
                 const params = new URLSearchParams({
                     client_id: 'proton-vpn-browser',
                     redirect_uri: 'https://account.protonvpn.com/callback',
-                    state: Math.random().toString(36).substring(2),
                     response_type: 'token',
-                    scope: 'vpn'
+                    scope: 'vpn',
+                    state: Math.random().toString(36).substring(2),
+                    prompt: 'select_account'
                 });
 
                 const authUrl = `https://account.protonvpn.com/authorize?${params.toString()}`;
                 
-                // Open auth window
-                window.electron.ipcRenderer.invoke(IPC.AUTH.START, authUrl)
+                // Open auth window through main process
+                window.electron.ipcRenderer.invoke(IPC_CHANNELS.AUTH.START, authUrl)
                     .catch(error => {
                         console.error('Failed to open auth window:', error);
                         this.showError('Failed to open authentication window');

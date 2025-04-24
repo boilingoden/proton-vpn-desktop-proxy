@@ -5,7 +5,7 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 const rendererConfig = {
     mode: 'development',
     entry: './src/renderer/renderer.ts',
-    target: 'electron-renderer',
+    target: 'web', // Changed to web since we're running in a browser context
     devtool: 'source-map',
     module: {
         rules: [
@@ -15,7 +15,7 @@ const rendererConfig = {
                     loader: 'ts-loader',
                     options: {
                         compilerOptions: {
-                            module: 'esnext'
+                            module: 'es2015'
                         }
                     }
                 },
@@ -48,16 +48,17 @@ const rendererConfig = {
     resolve: {
         extensions: ['.ts', '.js'],
         fallback: {
-            "path": false,
-            "os": false,
-            "crypto": false,
-            "stream": false,
-            "util": false
+            path: false,
+            fs: false,
+            crypto: false,
+            stream: false,
+            util: false
         }
     },
     output: {
         filename: 'renderer.js',
-        path: path.resolve(__dirname, 'dist/renderer')
+        path: path.resolve(__dirname, 'dist/renderer'),
+        libraryTarget: 'umd'
     }
 };
 
@@ -81,7 +82,8 @@ const mainConfig = {
     output: {
         filename: 'main.js',
         path: path.resolve(__dirname, 'dist/main')
-    }
+    },
+    externals: ['electron']
 };
 
 const preloadConfig = {
