@@ -41,10 +41,19 @@ const rendererConfig = {
     resolve: {
         extensions: ['.ts', '.js'],
         fallback: {
+            "assert": require.resolve("assert/"),
+            "util": require.resolve("util/"),
+            "stream": require.resolve("stream-browserify"),
             "path": require.resolve("path-browserify"),
             "os": require.resolve("os-browserify/browser"),
-            "crypto": require.resolve("crypto-browserify")
+            "crypto": require.resolve("crypto-browserify"),
+            "vm": require.resolve("vm-browserify"),
+            "fs": false,
+            "electron": false
         }
+    },
+    externals: {
+        electron: 'commonjs electron'
     },
     output: {
         filename: 'renderer.js',
