@@ -33,6 +33,7 @@ class MainProcess {
     private static readonly PROXY_CHECK_INTERVAL = 15000; // 15 seconds
     private static readonly LOGICAL_CHECK_INTERVAL = 300000; // 5 minutes
     private static readonly NETWORK_CHECK_INTERVAL = 10000; // 10 seconds
+    private networkMonitoringInitialized = false;
 
     constructor() {
         this.init();
@@ -145,200 +146,6 @@ class MainProcess {
         }
     }
 
-    private async checkLogicalStatus(serverId: string): Promise<boolean> {
-        try {
-            const authData = getAuthData();
-            if (!authData?.accessToken) {
-                this.updateProxyError({
-                    type: ProxyErrorType.AUTH_FAILED,
-                    message: 'Authentication token missing',
-                    retryable: true
-                });
-                return false;
-            }
-
-            const response = await fetch(`https://api.protonvpn.com/vpn/v1/logicals?ID[]=${serverId}`, {
-                headers: {
-                    'Authorization': `Bearer ${authData.accessToken}`
-                }
-            });
-
-            if (!response.ok) {
-                this.updateProxyError({
-                    type: ProxyErrorType.LOGICAL_ERROR,
-                    message: 'Server status check failed',
-                    httpStatus: response.status,
-                    retryable: true
-                });
-                return false;
-            }
-
-            const data = await response.json();
-            const isUp = data.LogicalServers?.[0]?.Status === 1;
-
-            if (!isUp) {
-                this.updateProxyError({
-                    type: ProxyErrorType.SERVER_ERROR,
-                    message: 'Server is down or maintenance',
-                    retryable: false
-                });
-            }
-
-            return isUp;
-        } catch (error) {
-            this.updateProxyError({
-                type: ProxyErrorType.NETWORK_ERROR,
-                message: 'Failed to check server status',
-                retryable: true
-            });
-            return false;
-        }
-    }
-
-    private async checkProxyStatus(): Promise<boolean> {
-        const proxyConfig = getProxyConfig();
-        if (!proxyConfig?.enabled) return false;
-
-        try {
-            // First check network connectivity
-            if (!await this.checkNetworkConnectivity()) {
-                return false;
-            }
-
-            const proxyUrl = `http://${proxyConfig.host}:${proxyConfig.port}`;
-            const agent = new HttpsProxyAgent(proxyUrl);
-            
-            const headers: Record<string, string> = {};
-            if (proxyConfig.username && proxyConfig.password) {
-                headers['Proxy-Authorization'] = 'Basic ' + Buffer.from(`${proxyConfig.username}:${proxyConfig.password}`).toString('base64');
-            }
-
-            // Test multiple endpoints in parallel with timeout
-            const testUrls = [
-                'https://api.protonvpn.com/vpn/location',
-                'https://protonvpn.com',
-                'https://api.protonvpn.com/vpn/v1/browser/token'
-            ];
-
-            const results = await Promise.all(testUrls.map(url => 
-                fetch(url, {
-                    agent,
-                    headers,
-                    timeout: 8000
-                }).then(res => {
-                    if (res.status === 401 || res.status === 407) {
-                        throw new Error('AUTH_FAILED');
-                    }
-                    return res.ok;
-                }).catch(err => {
-                    if (err.message === 'AUTH_FAILED') {
-                        this.updateProxyError({
-                            type: ProxyErrorType.AUTH_FAILED,
-                            message: 'Proxy authentication failed',
-                            retryable: true
-                        });
-                    } else if (err.name === 'AbortError') {
-                        this.updateProxyError({
-                            type: ProxyErrorType.TIMEOUT,
-                            message: 'Proxy connection timed out',
-                            retryable: true
-                        });
-                    }
-                    return false;
-                })
-            ));
-
-            // Check logical status if enough time has passed
-            const now = Date.now();
-            if (proxyConfig.serverId && now - this.lastLogicalCheck >= MainProcess.LOGICAL_CHECK_INTERVAL) {
-                this.lastLogicalCheck = now;
-                if (!await this.checkLogicalStatus(proxyConfig.serverId)) {
-                    return false;
-                }
-            }
-
-            const isWorking = results.filter(Boolean).length >= 2;
-            if (!isWorking) {
-                this.updateProxyError({
-                    type: ProxyErrorType.SERVER_ERROR,
-                    message: 'Proxy endpoints unreachable',
-                    retryable: true
-                });
-            }
-            return isWorking;
-        } catch (error) {
-            this.updateProxyError({
-                type: ProxyErrorType.NETWORK_ERROR,
-                message: 'Proxy status check failed',
-                retryable: true
-            });
-            return false;
-        }
-    }
-
-    private startProxyMonitoring() {
-        if (this.proxyCheckInterval) {
-            clearInterval(this.proxyCheckInterval);
-        }
-
-        this.proxyCheckInterval = setInterval(async () => {
-            try {
-                const proxyConfig = getProxyConfig();
-                if (!proxyConfig?.enabled) return;
-
-                // Check if credentials need refresh
-                if (isCredentialRefreshNeeded()) {
-                    this.mainWindow?.webContents.send(IPC_CHANNELS.EVENTS.CREDENTIALS_EXPIRED);
-                    return;
-                }
-
-                const proxyStatus = await this.checkProxyStatus();
-                if (!proxyStatus) {
-                    const now = Date.now();
-                    if (now - this.lastProxyError > MainProcess.MIN_RETRY_INTERVAL) {
-                        this.lastProxyError = now;
-                        this.proxyRetryCount++;
-                        
-                        if (this.proxyRetryCount <= MainProcess.MAX_RETRY_COUNT) {
-                            this.mainWindow?.webContents.send(IPC_CHANNELS.EVENTS.PROXY_CONNECTION_LOST, proxyConfig.lastError);
-                        } else {
-                            // Force disconnect after max retries
-                            await this.clearSystemProxy();
-                            this.mainWindow?.webContents.send(IPC_CHANNELS.EVENTS.PROXY_CONNECTION_LOST, {
-                                type: ProxyErrorType.SERVER_ERROR,
-                                message: 'Maximum retry attempts reached',
-                                retryable: false
-                            });
-                        }
-                    }
-                } else {
-                    // Reset error state on successful connection
-                    this.proxyRetryCount = 0;
-                    this.lastProxyError = 0;
-                    if (proxyConfig.lastError) {
-                        delete proxyConfig.lastError;
-                        delete proxyConfig.retryCount;
-                        saveProxyConfig(proxyConfig);
-                    }
-                }
-            } catch (error) {
-                console.error('Proxy monitoring error:', error);
-            }
-        }, MainProcess.PROXY_CHECK_INTERVAL);
-
-        // Monitor network connectivity changes
-        if (app.on) {
-            app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
-                if (url.startsWith('https://api.protonvpn.com')) {
-                    event.preventDefault();
-                    callback(true);
-                } else {
-                    callback(false);
-                }
-            });
-        }
-    }
-
     private async setSystemProxy(config: { 
         host: string; 
         port: number;
@@ -352,8 +159,13 @@ class MainProcess {
             this.lastProxyError = 0;
 
             const settings = getSettings();
-            const proxyRules = `http=${config.host}:${config.port};https=${config.host}:${config.port}`;
+            const proxyHost = config.host;
+            const proxyPort = config.port;
             
+            // Format proxy rules
+            const proxyRules = `http=${proxyHost}:${proxyPort};https=${proxyHost}:${proxyPort}`;
+            
+            // Setup bypass list with proper security
             const proxyBypassRules = settings.killSwitch ? [
                 'localhost',
                 '127.0.0.1'
@@ -380,13 +192,13 @@ class MainProcess {
             }
 
             await session.defaultSession.setProxy(proxyConfig);
-
-            // Cache the credentials and save config
+            
+            // Cache credentials and save config
             if (config.username && config.password) {
                 cacheCredentials({
                     username: config.username,
                     password: config.password,
-                    expiresIn: 3600 // Standard 1-hour token
+                    expiresIn: 3600
                 });
             }
 
@@ -403,25 +215,202 @@ class MainProcess {
 
             return true;
         } catch (error) {
-            console.error('Failed to set system proxy:', error);
+            console.error('Failed to set proxy:', error);
             return false;
         }
     }
 
-    private async clearSystemProxy() {
+    private async checkProxyStatus(): Promise<boolean> {
+        const proxyConfig = getProxyConfig();
+        if (!proxyConfig?.enabled) return false;
+
         try {
-            await session.defaultSession.setProxy({ proxyRules: '' });
-            clearProxyConfig();
-            
-            if (this.proxyCheckInterval) {
-                clearInterval(this.proxyCheckInterval);
-                this.proxyCheckInterval = null;
+            // First check network connectivity
+            if (!await this.checkNetworkConnectivity()) {
+                this.updateProxyError({
+                    type: ProxyErrorType.NETWORK_ERROR,
+                    message: 'Network connectivity issues',
+                    retryable: true
+                });
+                return false;
             }
+
+            // Create proxy agent for requests
+            const proxyUrl = `http://${proxyConfig.host}:${proxyConfig.port}`;
+            const agent = new HttpsProxyAgent(proxyUrl);
             
+            const headers: Record<string, string> = {};
+            if (proxyConfig.username && proxyConfig.password) {
+                headers['Proxy-Authorization'] = 'Basic ' + Buffer.from(
+                    `${proxyConfig.username}:${proxyConfig.password}`
+                ).toString('base64');
+            }
+
+            // Test multiple endpoints in parallel with timeout
+            const testUrls = [
+                'https://api.protonvpn.com/vpn/location',
+                'https://protonvpn.com',
+                'https://api.protonvpn.com/vpn/v1/browser/token'
+            ];
+
+            const results = await Promise.all(testUrls.map(url => 
+                fetch(url, {
+                    agent,
+                    headers,
+                    timeout: 10000
+                }).then(() => true).catch(() => false)
+            ));
+
+            // Check logical status after basic connectivity
+            if (results.some(Boolean)) {
+                if (proxyConfig.serverId) {
+                    if (!await this.checkLogicalStatus(proxyConfig.serverId)) {
+                        return false;
+                    }
+                }
+
+                const isWorking = results.filter(Boolean).length >= 2;
+                if (!isWorking) {
+                    this.updateProxyError({
+                        type: ProxyErrorType.SERVER_ERROR,
+                        message: 'Proxy endpoints unreachable',
+                        retryable: true
+                    });
+                }
+                return isWorking;
+            }
+
+            this.updateProxyError({
+                type: ProxyErrorType.SERVER_ERROR,
+                message: 'All proxy endpoints unreachable',
+                retryable: true
+            });
+            return false;
+
+        } catch (error) {
+            this.updateProxyError({
+                type: ProxyErrorType.NETWORK_ERROR,
+                message: 'Proxy status check failed',
+                retryable: true
+            });
+            return false;
+        }
+    }
+
+    private async checkLogicalStatus(serverId: string): Promise<boolean> {
+        try {
+            const now = Date.now();
+            // Rate limit logical checks
+            if (now - this.lastLogicalCheck < MainProcess.LOGICAL_CHECK_INTERVAL) {
+                return true;
+            }
+            this.lastLogicalCheck = now;
+
+            const isUp = await ProtonVPNAPI.checkServerStatus(serverId);
+            if (!isUp) {
+                this.updateProxyError({
+                    type: ProxyErrorType.LOGICAL_ERROR,
+                    message: 'Server unavailable',
+                    retryable: true
+                });
+                return false;
+            }
             return true;
         } catch (error) {
-            console.error('Failed to clear system proxy:', error);
+            console.error('Logical status check failed:', error);
             return false;
+        }
+    }
+
+    private startProxyMonitoring() {
+        if (this.proxyCheckInterval) {
+            clearInterval(this.proxyCheckInterval);
+        }
+
+        this.proxyCheckInterval = setInterval(async () => {
+            try {
+                const proxyConfig = getProxyConfig();
+                if (!proxyConfig?.enabled) {
+                    this.stopProxyMonitoring();
+                    return;
+                }
+
+                const isWorking = await this.checkProxyStatus();
+                
+                if (!isWorking) {
+                    this.proxyRetryCount++;
+                    
+                    if (this.proxyRetryCount >= MainProcess.MAX_RETRY_COUNT) {
+                        if (this.mainWindow) {
+                            this.mainWindow.webContents.send(IPC_CHANNELS.EVENTS.PROXY_CONNECTION_LOST, {
+                                type: ProxyErrorType.SERVER_ERROR,
+                                message: 'Maximum retry attempts reached',
+                                retryable: false
+                            });
+                        }
+                        this.stopProxyMonitoring();
+                    }
+                } else {
+                    // Reset error state on successful connection
+                    this.proxyRetryCount = 0;
+                    this.lastProxyError = 0;
+                    
+                    const config = getProxyConfig();
+                    if (config?.lastError) {
+                        delete config.lastError;
+                        delete config.retryCount;
+                        saveProxyConfig(config);
+                    }
+                }
+            } catch (error) {
+                console.error('Proxy monitoring error:', error);
+            }
+        }, MainProcess.PROXY_CHECK_INTERVAL);
+
+        // Setup network state monitoring
+        if (!this.networkMonitoringInitialized) {
+            this.initializeNetworkMonitoring();
+        }
+    }
+
+    private initializeNetworkMonitoring() {
+        this.networkMonitoringInitialized = true;
+        
+        if (app.on) {
+            app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
+                if (url.startsWith('https://api.protonvpn.com')) {
+                    event.preventDefault();
+                    callback(true);
+                    return;
+                }
+                callback(false);
+            });
+        }
+
+        session.defaultSession.on('will-download', () => {
+            this.checkNetworkConnectivity();
+        });
+
+        // Monitor main window network state
+        if (this.mainWindow) {
+            this.mainWindow.webContents.on('did-fail-load', (_event, _code, description) => {
+                if (description.includes('ERR_INTERNET_DISCONNECTED') ||
+                    description.includes('ERR_NETWORK_CHANGED')) {
+                    this.networkState = 'offline';
+                    this.updateProxyError({
+                        type: ProxyErrorType.NETWORK_ERROR,
+                        message: 'Network connection lost',
+                        retryable: true
+                    });
+                }
+            });
+        }
+    }
+
+    private stopProxyMonitoring() {
+        if (this.proxyCheckInterval) {
+            clearInterval(this.proxyCheckInterval);
+            this.proxyCheckInterval = null;
         }
     }
 
@@ -521,28 +510,6 @@ class MainProcess {
         this.initializeNetworkMonitoring();
     }
 
-    private initializeNetworkMonitoring() {
-        // Check initial network state
-        this.checkNetworkConnectivity();
-
-        // Monitor network interface changes
-        const getInterfacesString = () => JSON.stringify(networkInterfaces());
-        let lastInterfaces = getInterfacesString();
-
-        setInterval(() => {
-            const currentInterfaces = getInterfacesString();
-            if (currentInterfaces !== lastInterfaces) {
-                lastInterfaces = currentInterfaces;
-                this.checkNetworkConnectivity().then(online => {
-                    if (online && this.networkState === 'offline') {
-                        // Network restored - retry proxy connection
-                        this.checkProxyStatus();
-                    }
-                });
-            }
-        }, 5000); // Check every 5 seconds
-    }
-
     private cleanup() {
         // Clear all intervals
         if (this.proxyCheckInterval) {
@@ -560,6 +527,19 @@ class MainProcess {
         this.lastNetworkCheck = 0;
         this.lastProxyError = 0;
         this.proxyRetryCount = 0;
+    }
+
+    private async clearSystemProxy(): Promise<boolean> {
+        try {
+            await session.defaultSession.setProxy({});
+            clearProxyConfig();
+            this.stopProxyMonitoring();
+            return true;
+        } catch (error: unknown) {
+            const err = error as Error;
+            console.error('Failed to clear proxy:', err.message);
+            return false;
+        }
     }
 }
 

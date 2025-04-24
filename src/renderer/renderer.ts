@@ -23,7 +23,9 @@ import {
     getValidCredentials,
     isCredentialRefreshNeeded,
     cacheCredentials,
-    refreshAuthToken 
+    refreshAuthToken,
+    clearCredentials,
+    clearAuthData
 } from '../common/utils';
 import { ProtonVPNAPI } from '../common/api';
 
@@ -383,6 +385,54 @@ class VPNClientUI {
         });
     }
 
+    private async getProxyCredentials(retryCount = 0): Promise<{ username: string; password: string; expiresIn: number } | null> {
+        try {
+            // Check cached credentials first
+            const cached = getValidCredentials();
+            if (cached && !isCredentialRefreshNeeded()) {
+                return {
+                    username: cached.credentials.Username,
+                    password: cached.credentials.Password,
+                    expiresIn: cached.credentials.Expire
+                };
+            }
+
+            // Get fresh credentials
+            const credentials = await ProtonVPNAPI.getProxyToken(3600);
+            if (!credentials) {
+                throw new Error('Failed to get proxy credentials');
+            }
+
+            // Cache the new credentials
+            cacheCredentials(credentials);
+            return credentials;
+        } catch (error: unknown) {
+            console.error('Credential fetch error:', error);
+            
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            
+            // Handle auth errors
+            if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
+                if (retryCount < 3) {
+                    const success = await refreshAuthToken();
+                    if (success) {
+                        return this.getProxyCredentials(retryCount + 1);
+                    }
+                }
+                await this.handleAuthFailure();
+                return null;
+            }
+
+            // Handle rate limiting
+            if (errorMessage.includes('429') && retryCount < 3) {
+                await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+                return this.getProxyCredentials(retryCount + 1);
+            }
+
+            return null;
+        }
+    }
+
     private async handleAuthFailure() {
         try {
             const success = await refreshAuthToken();
@@ -393,9 +443,14 @@ class VPNClientUI {
                     return;
                 }
             }
+            
             await this.disconnect();
             this.showError('Authentication failed. Please sign in again.');
             this.showSignInView();
+            
+            // Clear credentials and auth data
+            clearCredentials();
+            clearAuthData();
         } catch (error) {
             console.error('Auth failure handling failed:', error);
             await this.disconnect();
@@ -640,64 +695,49 @@ class VPNClientUI {
         }
     }
 
-    private async scheduleCredentialRefresh(expiresInSeconds: number) {
+    private async scheduleCredentialRefresh(expiresInSeconds: number): Promise<void> {
         if (this.credentialRefreshTimer) {
             clearTimeout(this.credentialRefreshTimer);
         }
 
-        // Refresh credentials at 90% of expiry time
+        // Refresh at 90% of expiry time
         const refreshTime = (expiresInSeconds * 0.9) * 1000;
         
         this.credentialRefreshTimer = setTimeout(async () => {
             try {
+                if (!this.isConnected || !this.currentServer) return;
+
                 const credentials = await this.getProxyCredentials();
-                if (credentials && this.isConnected && this.currentServer) {
-                    // Update proxy with new credentials
-                    await window.electron.ipcRenderer.invoke(IPC.PROXY.SET, {
-                        host: this.currentServer.host,
-                        port: this.currentServer.port,
-                        username: credentials.username,
-                        password: credentials.password
-                    });
+                if (!credentials) {
+                    throw new Error('Failed to refresh credentials');
+                }
+
+                // Update proxy with new credentials
+                const success = await window.electron.ipcRenderer.invoke(IPC.PROXY.SET, {
+                    host: this.currentServer.host,
+                    port: this.currentServer.port,
+                    username: credentials.username,
+                    password: credentials.password,
+                    bypassList: this.currentServer.bypassList
+                });
+
+                if (success) {
+                    this.showSuccess('Credentials refreshed successfully');
+                    this.scheduleCredentialRefresh(credentials.expiresIn);
+                } else {
+                    throw new Error('Failed to update proxy configuration');
                 }
             } catch (error) {
-                console.error('Failed to refresh credentials:', error);
-                // If credentials refresh fails, disconnect
-                await this.disconnect();
-                this.showError('Connection lost: Failed to refresh credentials');
+                console.error('Credential refresh failed:', error);
+                
+                if (error instanceof Error && 
+                    (error.message.includes('401') || error.message.includes('unauthorized'))) {
+                    await this.handleAuthFailure();
+                } else {
+                    await this.handleProxyError(error instanceof Error ? error : new Error('Credential refresh failed'));
+                }
             }
         }, refreshTime);
-    }
-
-    private async getProxyCredentials(): Promise<{ username: string; password: string; expiresIn: number } | null> {
-        try {
-            const authData = getAuthData();
-            if (!authData?.accessToken) return null;
-
-            const response = await fetch('https://api.protonvpn.com/v2/vpn/browser/token?Duration=3600', {
-                headers: {
-                    'Authorization': `Bearer ${authData.accessToken}`
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to get proxy credentials');
-            }
-
-            const data = await response.json();
-            if (data.Code !== 1000 || !data.Username || !data.Password || !data.Expire) {
-                throw new Error('Invalid proxy credentials response');
-            }
-
-            return {
-                username: data.Username,
-                password: data.Password,
-                expiresIn: data.Expire
-            };
-        } catch (error) {
-            console.error('Failed to get proxy credentials:', error);
-            return null;
-        }
     }
 
     private getRetryDelay(attempt: number): number {
@@ -706,7 +746,7 @@ class VPNClientUI {
         return Math.min(Math.pow(2, attempt - 1) * 2000, 12000);
     }
 
-    private async handleProxyError(error: Error) {
+    private async handleProxyError(error: Error | ProxyError): Promise<void> {
         console.error('Proxy error:', error);
         
         // Clear existing timers
@@ -728,9 +768,8 @@ class VPNClientUI {
             return;
         }
 
-        // Handle specific error types matching extension behavior
-        const errorMessage = error.message.toLowerCase();
-        if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
+        const errorMessage = error instanceof Error ? error.message : error.message;
+        if (errorMessage.toLowerCase().includes('401') || errorMessage.toLowerCase().includes('unauthorized')) {
             this.credentialFailures++;
             const authData = getAuthData();
             if (authData) {
@@ -746,17 +785,17 @@ class VPNClientUI {
         }
 
         // Network or timeout errors
-        if (error.message.includes(ErrorCode.NETWORK_CHANGED) || 
-            error.message.includes(ErrorCode.NETWORK_IO_SUSPENDED)) {
+        if (errorMessage.includes(ErrorCode.NETWORK_CHANGED) || 
+            errorMessage.includes(ErrorCode.NETWORK_IO_SUSPENDED)) {
             await this.retryConnection(0); // Immediate retry for network changes
             return;
         }
 
-        if (error.message.includes(ErrorCode.TUNNEL_CONNECTION_FAILED) ||
-            error.message.includes(ErrorCode.PROXY_CONNECTION_FAILED) ||
-            error.message.includes(ErrorCode.TIMED_OUT) ||
-            error.message.includes('ECONNREFUSED') || 
-            error.message.includes('ETIMEDOUT')) {
+        if (errorMessage.includes(ErrorCode.TUNNEL_CONNECTION_FAILED) ||
+            errorMessage.includes(ErrorCode.PROXY_CONNECTION_FAILED) ||
+            errorMessage.includes(ErrorCode.TIMED_OUT) ||
+            errorMessage.includes('ECONNREFUSED') || 
+            errorMessage.includes('ETIMEDOUT')) {
             
             // Prevent too frequent retries
             const now = Date.now();
@@ -823,8 +862,7 @@ class VPNClientUI {
             // Get proxy credentials
             const credentials = await this.getProxyCredentials();
             if (!credentials) {
-                this.showError('Failed to get proxy credentials');
-                return;
+                throw new Error('Failed to get proxy credentials');
             }
 
             // Update auto-connect settings if enabled
@@ -834,28 +872,26 @@ class VPNClientUI {
                 this.settingsManager.saveSettings(settings);
             }
 
-            // Local network bypass list
-            const bypassList = [
-                'localhost',
-                '127.0.0.1',
-                '127.0.0.0/8',
-                '10.0.0.0/8',
-                '172.16.0.0/12',
-                '192.168.0.0/16',
-                '[::1]',
-                '<local>'
-            ];
-
             const success = await window.electron.ipcRenderer.invoke(IPC.PROXY.SET, {
                 host: this.currentServer.host,
                 port: this.currentServer.port,
                 username: credentials.username,
                 password: credentials.password,
-                bypassList
+                bypassList: [
+                    'localhost',
+                    '127.0.0.1',
+                    '127.0.0.0/8',
+                    '10.0.0.0/8',
+                    '172.16.0.0/12',
+                    '192.168.0.0/16',
+                    '[::1]',
+                    '<local>',
+                    ...(this.currentServer.bypassList || [])
+                ]
             });
 
             if (success) {
-                this.clearTimers(); // Clear connection timeout
+                this.clearTimers();
                 this.connectionState = ConnectionState.CONNECTED;
                 this.isConnected = true;
                 this.updateUI(true);

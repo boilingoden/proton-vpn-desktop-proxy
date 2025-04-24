@@ -33,13 +33,26 @@ export function getAuthData(): AuthConfig | null {
     return store.get(storeKeys.AUTH);
 }
 
+export function isTokenExpired(expiresAt: number): boolean {
+    // Consider token expired 5 minutes before actual expiry
+    return Date.now() + 5 * 60 * 1000 >= expiresAt;
+}
+
 export function clearAuthData(): void {
     store.delete(storeKeys.AUTH);
 }
 
-export function isTokenExpired(expiresAt: number): boolean {
-    // Consider token expired 5 minutes before actual expiry
-    return Date.now() + 5 * 60 * 1000 >= expiresAt;
+export function clearCredentials(): void {
+    cachedCredentials = null;
+    if (credentialNextFetching) {
+        clearTimeout(credentialNextFetching);
+        credentialNextFetching = null;
+    }
+}
+
+export function shouldPreemptivelyRefresh(): boolean {
+    const checkResult = checkCredentials();
+    return checkResult.nearingExpiry && !checkResult.expired;
 }
 
 export async function refreshAuthToken(): Promise<boolean> {
@@ -49,16 +62,41 @@ export async function refreshAuthToken(): Promise<boolean> {
             return false;
         }
 
-        const newAuthData = await ProtonVPNAPI.refreshToken(authData.refreshToken);
-        if (!newAuthData) {
+        const response = await fetch('https://api.protonvpn.com/v2/auth/refresh', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-pm-appversion': 'Other'
+            },
+            body: JSON.stringify({ 
+                RefreshToken: authData.refreshToken,
+                ResponseType: 'token',
+                GrantType: 'refresh_token'
+            })
+        });
+
+        if (!response.ok) {
             clearAuthData();
             return false;
         }
+
+        const data = await response.json();
+        if (data.Code !== 1000) {
+            clearAuthData();
+            return false;
+        }
+
+        const newAuthData: AuthConfig = {
+            accessToken: data.AccessToken,
+            refreshToken: data.RefreshToken,
+            expiresAt: Date.now() + (data.ExpiresIn * 1000)
+        };
 
         saveAuthData(newAuthData);
         return true;
     } catch (error) {
         console.error('Failed to refresh token:', error);
+        clearAuthData();
         return false;
     }
 }
@@ -117,6 +155,7 @@ export function getLastServer(): string | null {
 
 export interface CredentialsCacheItem {
     time: number;
+    halfLife: number;
     credentials: {
         Username: string;
         Password: string;
@@ -125,10 +164,17 @@ export interface CredentialsCacheItem {
 }
 
 let cachedCredentials: CredentialsCacheItem | null = null;
+let credentialNextFetching: NodeJS.Timeout | null = null;
+const CREDENTIAL_CHECK_INTERVAL = 1000; // Check every second
+const CREDENTIAL_REFRESH_MARGIN = 0.1; // Refresh at 90% of expiry time like extension
+let lastCredentialCheck = 0;
 
 export function cacheCredentials(credentials: { username: string; password: string; expiresIn: number }) {
+    const now = Date.now();
+    const expiryTime = now + (credentials.expiresIn * 1000);
     cachedCredentials = {
-        time: Date.now() + (credentials.expiresIn * 1000),
+        time: expiryTime,
+        halfLife: now + (credentials.expiresIn * 500), // Half of expiry time
         credentials: {
             Username: credentials.username,
             Password: credentials.password,
@@ -138,9 +184,17 @@ export function cacheCredentials(credentials: { username: string; password: stri
 }
 
 export function getCachedCredentials(): CredentialsCacheItem | null {
-    if (!cachedCredentials || Date.now() >= cachedCredentials.time) {
+    if (!cachedCredentials) {
         return null;
     }
+
+    const now = Date.now();
+    // Check if expired
+    if (now >= cachedCredentials.time) {
+        clearCredentials();
+        return null;
+    }
+
     return cachedCredentials;
 }
 
@@ -148,38 +202,52 @@ interface CredentialsCheckResult {
     valid: boolean;
     expired: boolean;
     needsRefresh: boolean;
+    nearingExpiry: boolean;
 }
-
-let lastCredentialCheck = 0;
-const CREDENTIAL_CHECK_INTERVAL = 1000; // Check every second
-const CREDENTIAL_REFRESH_MARGIN = 0.1; // Refresh at 90% of expiry time like extension
 
 export function checkCredentials(): CredentialsCheckResult {
     const now = Date.now();
     // Rate limit credential checks
     if (now - lastCredentialCheck < CREDENTIAL_CHECK_INTERVAL) {
-        return { valid: true, expired: false, needsRefresh: false };
+        return { 
+            valid: true, 
+            expired: false, 
+            needsRefresh: false,
+            nearingExpiry: false 
+        };
     }
     lastCredentialCheck = now;
 
     const cached = getCachedCredentials();
     if (!cached) {
-        return { valid: false, expired: true, needsRefresh: true };
+        return { 
+            valid: false, 
+            expired: true, 
+            needsRefresh: true,
+            nearingExpiry: false 
+        };
     }
 
     const timeUntilExpiry = cached.time - now;
     if (timeUntilExpiry <= 0) {
-        return { valid: false, expired: true, needsRefresh: true };
+        return { 
+            valid: false, 
+            expired: true, 
+            needsRefresh: true,
+            nearingExpiry: false 
+        };
     }
 
     // Calculate refresh time with 10% margin
     const refreshMargin = cached.credentials.Expire * 1000 * CREDENTIAL_REFRESH_MARGIN;
     const needsRefresh = timeUntilExpiry <= refreshMargin;
+    const nearingExpiry = timeUntilExpiry <= refreshMargin * 2; // Additional warning threshold
 
     return {
         valid: true,
         expired: false,
-        needsRefresh
+        needsRefresh,
+        nearingExpiry
     };
 }
 
