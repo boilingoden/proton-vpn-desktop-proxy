@@ -1,3 +1,34 @@
+export enum ConnectionState {
+    CONNECTED = 'connected',
+    CONNECTING = 'connecting',
+    DISCONNECTED = 'disconnected',
+    ERROR = 'error'
+}
+
+export enum ErrorCode {
+    NETWORK_CHANGED = 'net::ERR_NETWORK_CHANGED',
+    NETWORK_IO_SUSPENDED = 'net::ERR_NETWORK_IO_SUSPENDED',
+    TUNNEL_CONNECTION_FAILED = 'net::ERR_TUNNEL_CONNECTION_FAILED',
+    PROXY_CONNECTION_FAILED = 'net::ERR_PROXY_CONNECTION_FAILED',
+    TIMED_OUT = 'net::ERR_TIMED_OUT'
+}
+
+export enum ProxyErrorType {
+    AUTH_FAILED = 'auth_failed',
+    NETWORK_ERROR = 'network_error',
+    TIMEOUT = 'timeout',
+    SERVER_ERROR = 'server_error',
+    LOGICAL_ERROR = 'logical_error'
+}
+
+export interface ProxyError {
+    type: ProxyErrorType;
+    code?: string;
+    message: string;
+    httpStatus?: number;
+    retryable: boolean;
+}
+
 export interface ProxyServer {
     id: string;
     name: string;
@@ -44,6 +75,9 @@ export interface ProxyConfig {
     password?: string;
     bypassList?: string[];
     lastCredentialRefresh?: number;
+    serverId?: string;
+    lastError?: ProxyError;
+    retryCount?: number;
 }
 
 export interface ProxySetConfig {

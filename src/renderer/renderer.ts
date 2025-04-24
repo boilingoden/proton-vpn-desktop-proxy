@@ -12,8 +12,19 @@ declare global {
     }
 }
 
-import { VPNServer, Settings, AuthConfig, ProxyConfig } from '../common/types';
-import { getAuthData, saveAuthData, isTokenExpired, getProxyConfig, getSettings, updateSettings } from '../common/utils';
+import { VPNServer, Settings, AuthConfig, ProxyConfig, ProxyError, ProxyErrorType, ErrorCode } from '../common/types';
+import { 
+    getAuthData, 
+    saveAuthData, 
+    isTokenExpired, 
+    getProxyConfig, 
+    getSettings, 
+    updateSettings,
+    getValidCredentials,
+    isCredentialRefreshNeeded,
+    cacheCredentials,
+    refreshAuthToken 
+} from '../common/utils';
 import { ProtonVPNAPI } from '../common/api';
 
 // Use constant values for IPC channels to avoid type issues
@@ -184,6 +195,13 @@ class SettingsManager {
     }
 }
 
+enum ConnectionState {
+    DISCONNECTED,
+    CONNECTING,
+    CONNECTED,
+    ERROR
+}
+
 class VPNClientUI {
     private signInView: HTMLElement;
     private mainView: HTMLElement;
@@ -198,6 +216,7 @@ class VPNClientUI {
     private statusText: HTMLSpanElement;
     private serverList: HTMLDivElement;
     private filterButtons: NodeListOf<HTMLButtonElement>;
+    private settingsManager: SettingsManager;
     private isConnected: boolean = false;
     private currentServer: VPNServer | null = null;
     private currentFilter: string = 'all';
@@ -205,9 +224,16 @@ class VPNClientUI {
     private servers: VPNServer[] = [];
     private searchInput: HTMLInputElement;
     private credentialRefreshTimer: NodeJS.Timeout | null = null;
-    private readonly RETRY_DELAYS = [1000, 2000, 4000]; // Exponential backoff delays
     private retryTimeout: NodeJS.Timeout | null = null;
-    private settingsManager: SettingsManager;
+    private readonly MAX_RETRY_ATTEMPTS = 4;
+    private retryAttempts = 0;
+    private lastRetryTime = 0;
+    private connectionState: ConnectionState = ConnectionState.DISCONNECTED;
+    private maxCredentialFailures: number = 10;
+    private credentialFailures: number = 0;
+    private connectionTimeout: NodeJS.Timeout | null = null;
+    private static readonly CONNECTION_TIMEOUT = 30000; // 30 seconds
+    private static readonly CREDENTIAL_RETRY_DELAY = 400; // 400ms
 
     constructor() {
         // Initialize sign-in related elements
@@ -289,16 +315,193 @@ class VPNClientUI {
 
     private setupProxyEventListeners() {
         // Listen for proxy connection lost events from main process
-        window.electron.ipcRenderer.on(IPC.EVENTS.PROXY_CONNECTION_LOST, async () => {
-            this.isConnected = false;
-            this.updateUI(false);
-            this.showError('Connection lost: Proxy server unreachable');
-            
-            // Try to reconnect if we have a current server
-            if (this.currentServer) {
-                await this.retryConnection();
+        window.electron.ipcRenderer.on(IPC.EVENTS.PROXY_CONNECTION_LOST, async (error?: ProxyError) => {
+            if (!this.isConnected) return; // Avoid duplicate handling
+
+            if (error) {
+                // Handle specific error types like the extension
+                switch (error.type) {
+                    case ProxyErrorType.AUTH_FAILED:
+                        await this.handleAuthFailure();
+                        break;
+                    case ProxyErrorType.NETWORK_ERROR:
+                        await this.handleNetworkError(error);
+                        break;
+                    case ProxyErrorType.SERVER_ERROR:
+                        if (error.retryable) {
+                            await this.retryConnection(0);
+                        } else {
+                            await this.handleFatalError(error);
+                        }
+                        break;
+                    case ProxyErrorType.LOGICAL_ERROR:
+                        await this.handleLogicalError();
+                        break;
+                    default:
+                        await this.handleProxyError(new Error(error.message));
+                }
+            } else {
+                // Generic connection lost handling
+                this.isConnected = false;
+                this.updateUI(false);
+                this.showError('Connection lost: Proxy server unreachable');
+                
+                if (this.currentServer) {
+                    await this.retryConnection(0);
+                }
             }
         });
+
+        // Handle credential expiration
+        window.electron.ipcRenderer.on(IPC.EVENTS.CREDENTIALS_EXPIRED, async () => {
+            if (!this.isConnected) return;
+
+            try {
+                const credentials = await this.getProxyCredentials();
+                if (credentials && this.currentServer) {
+                    const success = await window.electron.ipcRenderer.invoke(IPC.PROXY.SET, {
+                        host: this.currentServer.host,
+                        port: this.currentServer.port,
+                        username: credentials.username,
+                        password: credentials.password
+                    });
+
+                    if (success) {
+                        this.scheduleCredentialRefresh(credentials.expiresIn);
+                        this.showSuccess('Credentials refreshed successfully');
+                    } else {
+                        throw new Error('Failed to update credentials');
+                    }
+                } else {
+                    throw new Error('Failed to get new credentials');
+                }
+            } catch (error) {
+                console.error('Credential refresh failed:', error);
+                await this.disconnect();
+                this.showError('Connection lost: Failed to refresh credentials');
+            }
+        });
+    }
+
+    private async handleAuthFailure() {
+        try {
+            const success = await refreshAuthToken();
+            if (success) {
+                const credentials = await this.getProxyCredentials();
+                if (credentials && this.currentServer) {
+                    await this.retryConnection(0);
+                    return;
+                }
+            }
+            await this.disconnect();
+            this.showError('Authentication failed. Please sign in again.');
+            this.showSignInView();
+        } catch (error) {
+            console.error('Auth failure handling failed:', error);
+            await this.disconnect();
+            this.showError('Authentication error occurred');
+        }
+    }
+
+    private async handleNetworkError(error: ProxyError) {
+        this.showError(`Network error: ${error.message}`);
+        if (error.retryable) {
+            // Wait for network to stabilize before retry
+            setTimeout(async () => {
+                if (this.currentServer) {
+                    await this.retryConnection(0);
+                }
+            }, 2000);
+        } else {
+            await this.disconnect();
+        }
+    }
+
+    private async handleFatalError(error: ProxyError) {
+        await this.disconnect();
+        this.showError(`Connection error: ${error.message}`);
+    }
+
+    private async handleLogicalError() {
+        // Try to find an alternative server like the extension does
+        try {
+            const servers = await ProtonVPNAPI.getServers();
+            const alternativeServer = servers.find(s => 
+                s.status === 'online' && 
+                s.id !== this.currentServer?.id &&
+                s.features?.every(f => this.currentServer?.features?.includes(f))
+            );
+
+            if (alternativeServer) {
+                this.currentServer = alternativeServer;
+                await this.connect();
+                this.showSuccess('Switched to alternative server');
+            } else {
+                await this.disconnect();
+                this.showError('No alternative servers available');
+            }
+        } catch (error) {
+            console.error('Failed to handle logical error:', error);
+            await this.disconnect();
+            this.showError('Failed to find alternative server');
+        }
+    }
+
+    // Update the retryConnection method to handle more error cases
+    private async retryConnection(retryCount: number) {
+        if (!this.currentServer || !this.connectionState) return;
+
+        try {
+            const delay = this.getRetryDelay(retryCount);
+            this.retryTimeout = setTimeout(async () => {
+                try {
+                    // Check cached credentials first
+                    let validCreds = getValidCredentials()?.credentials;
+                    if (!validCreds || isCredentialRefreshNeeded()) {
+                        const newCreds = await this.getProxyCredentials();
+                        if (!newCreds) {
+                            throw new Error('Failed to get credentials');
+                        }
+                        cacheCredentials(newCreds);
+                        validCreds = {
+                            Username: newCreds.username,
+                            Password: newCreds.password,
+                            Expire: newCreds.expiresIn
+                        };
+                    }
+
+                    const success = await window.electron.ipcRenderer.invoke(IPC.PROXY.SET, {
+                        host: this.currentServer!.host,
+                        port: this.currentServer!.port,
+                        username: validCreds.Username,
+                        password: validCreds.Password
+                    });
+
+                    if (success) {
+                        this.retryAttempts = 0;
+                        this.showSuccess('Connection restored');
+                        this.scheduleCredentialRefresh(validCreds.Expire);
+                    } else {
+                        throw new Error('Failed to set proxy configuration');
+                    }
+                } catch (error) {
+                    console.error('Retry attempt failed:', error);
+                    if (retryCount >= this.MAX_RETRY_ATTEMPTS) {
+                        await this.handleFatalError({
+                            type: ProxyErrorType.SERVER_ERROR,
+                            message: 'Maximum retry attempts reached',
+                            retryable: false
+                        });
+                    } else {
+                        await this.retryConnection(retryCount + 1);
+                    }
+                }
+            }, delay);
+        } catch (error) {
+            console.error('Error in retry sequence:', error);
+            await this.disconnect();
+            this.showError('Failed to reconnect to proxy');
+        }
     }
 
     private async initializeUI() {
@@ -497,89 +700,96 @@ class VPNClientUI {
         }
     }
 
-    private async retryConnection(retryCount: number = 0) {
-        if (!this.currentServer || !this.isConnected) return;
-
-        try {
-            if (retryCount >= this.RETRY_DELAYS.length) {
-                // If we've exhausted retries, disconnect
-                await this.disconnect();
-                this.showError('Connection lost after multiple retry attempts');
-                return;
-            }
-
-            const delay = this.RETRY_DELAYS[retryCount];
-            this.retryTimeout = setTimeout(async () => {
-                try {
-                    const credentials = await this.getProxyCredentials();
-                    if (!credentials) {
-                        throw new Error('Failed to get credentials');
-                    }
-
-                    const success = await window.electron.ipcRenderer.invoke(IPC.PROXY.SET, {
-                        host: this.currentServer!.host,
-                        port: this.currentServer!.port,
-                        username: credentials.username,
-                        password: credentials.password
-                    });
-
-                    if (success) {
-                        // Connection restored
-                        this.showSuccess('Connection restored');
-                        this.scheduleCredentialRefresh(credentials.expiresIn);
-                    } else {
-                        // Try again with increased retry count
-                        this.retryConnection(retryCount + 1);
-                    }
-                } catch (error) {
-                    console.error('Retry attempt failed:', error);
-                    this.retryConnection(retryCount + 1);
-                }
-            }, delay);
-        } catch (error) {
-            console.error('Error in retry sequence:', error);
-            await this.disconnect();
-            this.showError('Failed to reconnect to proxy');
-        }
+    private getRetryDelay(attempt: number): number {
+        // Exponential backoff: 500ms, 2s, 6s, 12s (matching extension)
+        if (attempt === 0) return 500;
+        return Math.min(Math.pow(2, attempt - 1) * 2000, 12000);
     }
 
     private async handleProxyError(error: Error) {
         console.error('Proxy error:', error);
         
-        // Clear any existing retry timeout
-        if (this.retryTimeout) {
-            clearTimeout(this.retryTimeout);
-            this.retryTimeout = null;
-        }
+        // Clear existing timers
+        this.clearTimers();
 
-        // Stop credential refresh timer
-        if (this.credentialRefreshTimer) {
-            clearTimeout(this.credentialRefreshTimer);
-            this.credentialRefreshTimer = null;
+        // Check if we exceeded credential failures
+        if (this.credentialFailures >= this.maxCredentialFailures) {
+            await this.disconnect();
+            this.showError('Authentication failed: Too many consecutive failures');
+            return;
         }
 
         // Check proxy status
         const proxyStatus = await window.electron.ipcRenderer.invoke(IPC.PROXY.STATUS);
         if (!proxyStatus) {
-            // If proxy is completely down, disconnect
             this.isConnected = false;
             this.updateUI(false);
             this.showError('Connection lost: Proxy server unreachable');
             return;
         }
 
-        // Try to refresh auth token if we get a 401
-        if (error.message.includes('401') || error.message.includes('unauthorized')) {
+        // Handle specific error types matching extension behavior
+        const errorMessage = error.message.toLowerCase();
+        if (errorMessage.includes('401') || errorMessage.includes('unauthorized')) {
+            this.credentialFailures++;
             const authData = getAuthData();
-            if (authData && !isTokenExpired(authData.expiresAt)) {
-                await this.retryConnection();
-                return;
+            if (authData) {
+                const success = await refreshAuthToken();
+                if (success) {
+                    await this.retryConnection(0); // Reset retry count for auth failures
+                    return;
+                }
             }
+            await this.disconnect();
+            this.showError('Authentication failed. Please sign in again.');
+            return;
         }
 
-        // Show error and initiate retry sequence
-        this.showError('Connection issue: Attempting to reconnect...');
-        this.retryConnection();
+        // Network or timeout errors
+        if (error.message.includes(ErrorCode.NETWORK_CHANGED) || 
+            error.message.includes(ErrorCode.NETWORK_IO_SUSPENDED)) {
+            await this.retryConnection(0); // Immediate retry for network changes
+            return;
+        }
+
+        if (error.message.includes(ErrorCode.TUNNEL_CONNECTION_FAILED) ||
+            error.message.includes(ErrorCode.PROXY_CONNECTION_FAILED) ||
+            error.message.includes(ErrorCode.TIMED_OUT) ||
+            error.message.includes('ECONNREFUSED') || 
+            error.message.includes('ETIMEDOUT')) {
+            
+            // Prevent too frequent retries
+            const now = Date.now();
+            if (now - this.lastRetryTime < 5000) {
+                return;
+            }
+            this.lastRetryTime = now;
+
+            if (this.retryAttempts >= this.MAX_RETRY_ATTEMPTS) {
+                await this.disconnect();
+                this.showError('Connection lost after multiple retry attempts');
+                this.retryAttempts = 0;
+                return;
+            }
+
+            this.showError(`Connection issue: Attempting to reconnect... (Attempt ${this.retryAttempts + 1}/${this.MAX_RETRY_ATTEMPTS})`);
+            await this.retryConnection(this.retryAttempts++);
+        }
+    }
+
+    private clearTimers() {
+        if (this.retryTimeout) {
+            clearTimeout(this.retryTimeout);
+            this.retryTimeout = null;
+        }
+        if (this.credentialRefreshTimer) {
+            clearTimeout(this.credentialRefreshTimer);
+            this.credentialRefreshTimer = null;
+        }
+        if (this.connectionTimeout) {
+            clearTimeout(this.connectionTimeout);
+            this.connectionTimeout = null;
+        }
     }
 
     private async connect() {
@@ -589,6 +799,7 @@ class VPNClientUI {
         }
 
         this.setLoading(true, this.connectButton);
+        this.connectionState = ConnectionState.CONNECTING;
 
         try {
             if (!await this.checkAuthStatus()) {
@@ -598,6 +809,16 @@ class VPNClientUI {
                     return;
                 }
             }
+
+            // Start connection timeout
+            this.connectionTimeout = setTimeout(() => {
+                if (this.connectionState === ConnectionState.CONNECTING) {
+                    this.handleProxyError(new Error('Connection initialization timeout'));
+                }
+            }, VPNClientUI.CONNECTION_TIMEOUT);
+
+            // Reset credential failures on new connection
+            this.credentialFailures = 0;
 
             // Get proxy credentials
             const credentials = await this.getProxyCredentials();
@@ -634,17 +855,19 @@ class VPNClientUI {
             });
 
             if (success) {
+                this.clearTimers(); // Clear connection timeout
+                this.connectionState = ConnectionState.CONNECTED;
                 this.isConnected = true;
                 this.updateUI(true);
                 this.showSuccess('Successfully connected to proxy');
-                // Schedule credential refresh
                 this.scheduleCredentialRefresh(credentials.expiresIn);
             } else {
-                this.showError('Failed to connect to proxy');
+                throw new Error('Failed to set proxy configuration');
             }
         } catch (error) {
             console.error('Connection error:', error);
-            this.showError('Failed to connect to proxy');
+            this.connectionState = ConnectionState.ERROR;
+            await this.handleProxyError(error instanceof Error ? error : new Error('Failed to connect to proxy'));
         } finally {
             this.setLoading(false, this.connectButton);
         }
@@ -653,18 +876,9 @@ class VPNClientUI {
     private async disconnect() {
         this.setLoading(true, this.disconnectButton);
         try {
-            // Clear retry timeout if it exists
-            if (this.retryTimeout) {
-                clearTimeout(this.retryTimeout);
-                this.retryTimeout = null;
-            }
-
-            // Clear credential refresh timer
-            if (this.credentialRefreshTimer) {
-                clearTimeout(this.credentialRefreshTimer);
-                this.credentialRefreshTimer = null;
-            }
-
+            this.clearTimers();
+            this.connectionState = ConnectionState.DISCONNECTED;
+            
             const success = await window.electron.ipcRenderer.invoke(IPC.PROXY.CLEAR);
             if (success) {
                 this.isConnected = false;
@@ -681,7 +895,35 @@ class VPNClientUI {
         }
     }
 
-    private async handleAuth() {
+    private updateUI(isConnected: boolean) {
+        const status = isConnected ? 'Connected' : 'Disconnected';
+        const serverInfo = this.currentServer ? ` - ${this.currentServer.name}` : '';
+        this.statusText.textContent = status + serverInfo;
+        this.statusElement.classList.toggle('status-connected', isConnected);
+        this.connectButton.style.display = isConnected ? 'none' : 'block';
+        this.disconnectButton.style.display = isConnected ? 'block' : 'none';
+        
+        // Update server list items state
+        const serverElements = this.serverList.getElementsByClassName('server-item');
+        Array.from(serverElements).forEach(el => {
+            el.classList.toggle('disabled', isConnected && !el.classList.contains('selected'));
+        });
+    }
+
+    private setLoading(isLoading: boolean, button: HTMLButtonElement) {
+        button.disabled = isLoading;
+        if (isLoading) {
+            const overlay = document.createElement('div');
+            overlay.className = 'loading-overlay';
+            overlay.innerHTML = '<div class="loading-spinner"></div>';
+            button.appendChild(overlay);
+        } else {
+            const overlay = button.querySelector('.loading-overlay');
+            overlay?.remove();
+        }
+    }
+
+    private async handleAuth(): Promise<boolean> {
         const authUrl = 'https://account.protonvpn.com/authorize';
         try {
             this.signInButton.classList.add('loading');
@@ -710,13 +952,6 @@ class VPNClientUI {
         return false;
     }
 
-    private selectServer(server: VPNServer) {
-        this.currentServer = server;
-        const serverElements = this.serverList.getElementsByClassName('server-item');
-        Array.from(serverElements).forEach(el => el.classList.remove('selected'));
-        (event?.target as HTMLElement)?.closest('.server-item')?.classList.add('selected');
-    }
-
     private showError(message: string) {
         this.notifications.show('error', 'Error', message);
     }
@@ -725,24 +960,19 @@ class VPNClientUI {
         this.notifications.show('success', 'Success', message);
     }
 
-    private updateUI(isConnected: boolean) {
-        this.statusText.textContent = isConnected ? 'Connected' : 'Disconnected';
-        this.statusElement.classList.toggle('status-connected', isConnected);
-        this.connectButton.style.display = isConnected ? 'none' : 'block';
-        this.disconnectButton.style.display = isConnected ? 'block' : 'none';
-    }
-
-    private setLoading(isLoading: boolean, button: HTMLButtonElement) {
-        button.disabled = isLoading;
-        if (isLoading) {
-            const overlay = document.createElement('div');
-            overlay.className = 'loading-overlay';
-            overlay.innerHTML = '<div class="loading-spinner"></div>';
-            button.appendChild(overlay);
-        } else {
-            const overlay = button.querySelector('.loading-overlay');
-            overlay?.remove();
-        }
+    private selectServer(server: VPNServer, event?: Event) {
+        this.currentServer = server;
+        const serverElements = this.serverList.getElementsByClassName('server-item');
+        Array.from(serverElements).forEach(el => el.classList.remove('selected'));
+        
+        // Find the clicked server element using the event target if available
+        const targetElement = event?.target instanceof HTMLElement 
+            ? event.target.closest('.server-item')
+            : Array.from(serverElements).find(el => 
+                el.querySelector('.server-info')?.textContent?.includes(server.name)
+            );
+            
+        targetElement?.classList.add('selected');
     }
 }
 
