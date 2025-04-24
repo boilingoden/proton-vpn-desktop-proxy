@@ -5,7 +5,7 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 const rendererConfig = {
     mode: 'development',
     entry: './src/renderer/renderer.ts',
-    target: 'web', // Changed to web since we're running in a browser context
+    target: 'web',
     devtool: 'source-map',
     module: {
         rules: [
@@ -15,7 +15,8 @@ const rendererConfig = {
                     loader: 'ts-loader',
                     options: {
                         compilerOptions: {
-                            module: 'es2015'
+                            module: 'esnext',
+                            target: 'es2015'
                         }
                     }
                 },
@@ -48,17 +49,23 @@ const rendererConfig = {
     resolve: {
         extensions: ['.ts', '.js'],
         fallback: {
-            path: false,
-            fs: false,
-            crypto: false,
-            stream: false,
-            util: false
+            "os": false,
+            "crypto": false,
+            "path": false,
+            "fs": false
         }
     },
     output: {
         filename: 'renderer.js',
         path: path.resolve(__dirname, 'dist/renderer'),
-        libraryTarget: 'umd'
+        // Use modules for browser environment
+        library: {
+            type: 'module'
+        },
+        chunkFormat: 'module'
+    },
+    experiments: {
+        outputModule: true
     }
 };
 
@@ -82,8 +89,7 @@ const mainConfig = {
     output: {
         filename: 'main.js',
         path: path.resolve(__dirname, 'dist/main')
-    },
-    externals: ['electron']
+    }
 };
 
 const preloadConfig = {
