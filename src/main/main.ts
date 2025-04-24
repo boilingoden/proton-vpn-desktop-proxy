@@ -16,6 +16,7 @@ import { SettingsManager } from './settings';
 import fetch from 'node-fetch';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import type { RequestInit } from 'node-fetch';
+import { networkInterfaces } from 'os';
 
 class MainProcess {
     private mainWindow: BrowserWindow | null = null;
@@ -525,11 +526,11 @@ class MainProcess {
         this.checkNetworkConnectivity();
 
         // Monitor network interface changes
-        const networkInterfaces = require('os').networkInterfaces();
-        let lastInterfaces = JSON.stringify(networkInterfaces());
+        const getInterfacesString = () => JSON.stringify(networkInterfaces());
+        let lastInterfaces = getInterfacesString();
 
         setInterval(() => {
-            const currentInterfaces = JSON.stringify(require('os').networkInterfaces());
+            const currentInterfaces = getInterfacesString();
             if (currentInterfaces !== lastInterfaces) {
                 lastInterfaces = currentInterfaces;
                 this.checkNetworkConnectivity().then(online => {
