@@ -6,8 +6,8 @@
   "scripts": {
     "start": "electron .",
     "build": "npm run clean && webpack && tsc",
-    "watch": "tsc -w",
-    "dev": "npm run build && tsc -w & electron .",
+    "watch": "concurrently \"webpack --watch\" \"tsc -w\"",
+    "dev": "npm run build && concurrently \"npm run watch\" \"electron .\"",
     "package": "npm run build && electron-builder",
     "test": "jest",
     "clean": "rimraf dist"
@@ -22,6 +22,7 @@
   "devDependencies": {
     "@types/node": "latest",
     "@types/node-fetch": "^2.6.3",
+    "concurrently": "^8.2.2",
     "copy-webpack-plugin": "^11.0.0",
     "crypto-browserify": "^3.12.1",
     "css-loader": "^7.1.2",

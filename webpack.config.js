@@ -17,30 +17,23 @@ module.exports = {
             {
                 test: /\.css$/,
                 use: ['style-loader', 'css-loader'],
-            },
-            {
-                test: /\.(png|svg|jpg|gif)$/,
-                use: [
-                    {
-                        loader: 'file-loader',
-                        options: {
-                            name: '[name].[ext]',
-                            outputPath: 'assets'
-                        }
-                    }
-                ]
             }
         ],
     },
     plugins: [
         new HtmlWebpackPlugin({
-            template: './src/renderer/index.html'
+            template: './src/renderer/index.html',
+            filename: 'index.html'
         }),
         new CopyWebpackPlugin({
             patterns: [
                 {
                     from: './src/renderer/assets',
                     to: 'assets'
+                },
+                {
+                    from: './src/renderer/styles.css',
+                    to: 'styles.css'
                 }
             ]
         })
@@ -55,9 +48,6 @@ module.exports = {
     },
     output: {
         filename: 'renderer.js',
-        path: path.resolve(__dirname, 'dist/renderer'),
-        library: {
-            type: 'commonjs2'
-        }
+        path: path.resolve(__dirname, 'dist/renderer')
     }
 }
