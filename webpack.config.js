@@ -81,22 +81,17 @@ const mainConfig = {
         rules: [
             {
                 test: /\.ts$/,
-                use: {
-                    loader: 'ts-loader',
-                    options: {
-                        compilerOptions: {
-                            module: 'esnext',
-                            moduleResolution: 'node'
-                        }
-                    }
-                },
+                use: 'ts-loader',
                 exclude: /node_modules/
             }
         ]
     },
     resolve: {
         extensions: ['.ts', '.js'],
-        modules: [path.resolve(__dirname, 'src'), 'node_modules']
+        modules: ['node_modules'],
+        alias: {
+            '@common': path.resolve(__dirname, 'src/common')
+        }
     },
     output: {
         filename: 'main.js',
@@ -149,15 +144,7 @@ const commonConfig = {
         rules: [
             {
                 test: /\.ts$/,
-                use: {
-                    loader: 'ts-loader',
-                    options: {
-                        compilerOptions: {
-                            module: 'esnext',
-                            moduleResolution: 'node'
-                        }
-                    }
-                },
+                use: 'ts-loader',
                 exclude: /node_modules/
             }
         ]
@@ -169,11 +156,8 @@ const commonConfig = {
         filename: '[name].js',
         path: path.resolve(__dirname, 'dist/common'),
         library: {
-            type: 'module'
+            type: 'commonjs2'
         }
-    },
-    experiments: {
-        outputModule: true
     }
 };
 
