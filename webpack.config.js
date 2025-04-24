@@ -136,4 +136,45 @@ const preloadConfig = {
     }
 };
 
-export default [rendererConfig, mainConfig, preloadConfig];
+const commonConfig = {
+    mode: 'development',
+    entry: {
+        types: './src/common/types.ts',
+        api: './src/common/api.ts',
+        utils: './src/common/utils.ts'
+    },
+    target: 'node',
+    devtool: 'source-map',
+    module: {
+        rules: [
+            {
+                test: /\.ts$/,
+                use: {
+                    loader: 'ts-loader',
+                    options: {
+                        compilerOptions: {
+                            module: 'esnext',
+                            moduleResolution: 'node'
+                        }
+                    }
+                },
+                exclude: /node_modules/
+            }
+        ]
+    },
+    resolve: {
+        extensions: ['.ts', '.js']
+    },
+    output: {
+        filename: '[name].js',
+        path: path.resolve(__dirname, 'dist/common'),
+        library: {
+            type: 'module'
+        }
+    },
+    experiments: {
+        outputModule: true
+    }
+};
+
+export default [rendererConfig, mainConfig, preloadConfig, commonConfig];
