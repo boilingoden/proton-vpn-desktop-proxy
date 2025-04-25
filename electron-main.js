@@ -19,16 +19,17 @@ function createWindow() {
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: false,
-            preload: path.join(__dirname, 'preload.js')
+            preload: path.resolve(__dirname, 'preload.js')
         }
     });
 
     // Load the extension from the extension directory (contains built files)
     session.defaultSession.loadExtension(
-        path.join(__dirname, 'extension')
+        path.resolve(__dirname, 'extension')
     ).then(({ id }) => {
         console.log('Extension loaded with ID:', id);
-        mainWindow.loadFile('public/index.html');
+        // Load the extension's popup.html directly
+        mainWindow.loadFile(path.join(__dirname, 'extension', 'popup.html'));
     }).catch(err => {
         console.error('Failed to load extension:', err);
         mainWindow.loadURL('data:text/html,Failed to load VPN extension');

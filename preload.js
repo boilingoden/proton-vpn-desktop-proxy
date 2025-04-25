@@ -65,7 +65,6 @@ contextBridge.exposeInMainWorld('chrome', {
             }
         }
     },
-    // action API (Manifest V3)
     action: {
         setBadgeText: (details, callback) => {
             if (callback) callback();
@@ -74,7 +73,6 @@ contextBridge.exposeInMainWorld('chrome', {
             if (callback) callback();
         }
     },
-    // browserAction API (Manifest V2)
     browserAction: {
         setBadgeText: (details, callback) => {
             if (callback) callback();
@@ -85,5 +83,7 @@ contextBridge.exposeInMainWorld('chrome', {
     }
 });
 
-// Alias chrome to browser for compatibility
-contextBridge.exposeInMainWorld('browser', window.chrome);
+// Only expose browser if it doesn't already exist
+if (!window.browser) {
+    contextBridge.exposeInMainWorld('browser', window.chrome);
+}
