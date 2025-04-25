@@ -8,7 +8,7 @@
     "start": "electron .",
     "build": "npm run clean && webpack && tsc",
     "watch": "concurrently \"webpack --watch\" \"tsc -w\"",
-    "dev": "npm run build && concurrently \"npm run watch\" \"electron .\"",
+    "dev": "npm run build && electron .",
     "package": "npm run build && electron-builder",
     "test": "jest",
     "clean": "rimraf dist"
