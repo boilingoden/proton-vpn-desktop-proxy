@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Proton VPN Web App</title>
+</head>
+<body>
+  <div id="popup-container"></div>
+  <script>
+        fetch('popup.html')
+        .then(response => response.text())
+        .then(html => {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(html, 'text/html');
+          document.getElementById('popup-container').innerHTML = doc.body.innerHTML;
+          // Re-inject scripts to ensure they run
+          const scripts = doc.getElementsByTagName('script');
+          for (let script of scripts) {
+            const newScript = document.createElement('script');
+            newScript.textContent = script.textContent;
+            if (script.src) newScript.src = script.src;
+            document.getElementById('popup-container').appendChild(newScript);
+          }
+        });
+  </script>
+</body>
+</html>

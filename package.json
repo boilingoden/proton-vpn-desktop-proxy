@@ -1,81 +1,17 @@
 {
-  "name": "proton-vpn-desktop-proxy",
-  "version": "1.0.0",
-  "description": "ProtonVPN Desktop Proxy Application",
-  "type": "module",
-  "main": "dist/main/main.js",
-  "scripts": {
-    "start": "electron .",
-    "build": "npm run clean && webpack && tsc",
-    "watch": "concurrently \"webpack --watch\" \"tsc -w\"",
-    "dev": "npm run build && concurrently \"npm run watch\" \"electron .\"",
-    "package": "npm run build && electron-builder",
-    "test": "jest",
-    "clean": "rimraf dist"
-  },
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "electron-store": "^8.1.0",
-    "https-proxy-agent": "^5.0.1",
-    "node-fetch": "^2.6.9"
-  },
-  "devDependencies": {
-    "@electron/typescript-definitions": "^9.1.2",
-    "@types/node": "^22.14.1",
-    "@types/node-fetch": "^2.6.3",
-    "assert": "^2.1.0",
-    "concurrently": "^8.2.2",
-    "copy-webpack-plugin": "^11.0.0",
-    "crypto-browserify": "^3.12.1",
-    "css-loader": "^7.1.2",
-    "electron": "^35.2.1",
-    "electron-builder": "^24.13.3",
-    "file-loader": "^6.2.0",
-    "html-webpack-plugin": "^5.6.3",
-    "os-browserify": "^0.3.0",
-    "path-browserify": "^1.0.1",
-    "rimraf": "^5.0.0",
-    "stream-browserify": "^3.0.0",
-    "style-loader": "^4.0.0",
-    "ts-loader": "^9.5.2",
-    "typescript": "^5.8.3",
-    "typescript-plugin-css-modules": "^5.1.0",
-    "util": "^0.12.5",
-    "vm-browserify": "^1.1.2",
-    "webpack": "^5.99.6",
-    "webpack-cli": "^6.0.1",
-    "webpack-node-externals": "^3.0.0"
-  },
-  "build": {
-    "appId": "com.proton.vpn.desktop.proxy",
-    "productName": "ProtonVPN Desktop Proxy",
-    "directories": {
-      "output": "release"
+    "name": "proton-vpn-web-app",
+    "version": "1.0.0",
+    "main": "electron-main.js",
+    "scripts": {
+        "start": "node server.js",
+        "electron": "electron ."
     },
-    "files": [
-      "dist/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "dist/renderer/assets",
-        "to": "assets",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
-    "linux": {
-      "target": [
-        "AppImage"
-      ],
-      "category": "Network",
-      "maintainer": "Proton",
-      "asarUnpack": [
-        "node_modules/node-fetch/**/*",
-        "node_modules/https-proxy-agent/**/*"
-      ]
+    "dependencies": {
+        "electron": "^35.2.1",
+        "electron-chrome-extensions": "^4.7.0",
+        "eventemitter3": "^5.0.1",
+        "express": "^4.17.1",
+        "http-proxy": "^1.18.1",
+        "ipaddr.js": "^2.2.0"
     }
-  }
 }
