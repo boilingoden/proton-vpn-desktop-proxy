@@ -1,4 +1,4 @@
-# Proton VPN Desktop Proxy
+# Proton VPN Desktop Proxy (⚠️ not usable yet)
 
 A desktop application that provides secure proxy functionality ported from the Proton VPN Browser Extension. This application allows you to route your traffic through Proton's secure proxy servers without requiring a full VPN connection.
 
