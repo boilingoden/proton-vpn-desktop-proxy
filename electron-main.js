@@ -5,6 +5,19 @@ const ProxyServer = require('./server');
 let mainWindow;
 let proxyServer;
 
+// Register extension permissions
+function registerExtensionPermissions() {
+    // Register Chrome extension permissions that Electron doesn't natively support
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+        const supportedPermissions = ['notifications', 'privacy', 'proxy'];
+        if (supportedPermissions.includes(permission)) {
+            callback(true); // Auto-allow these permissions
+            return;
+        }
+        callback(false);
+    });
+}
+
 async function initProxyServer() {
     proxyServer = new ProxyServer();
     await proxyServer.start(2080);
@@ -38,6 +51,7 @@ function createWindow() {
 
 // App lifecycle
 app.whenReady().then(async () => {
+    registerExtensionPermissions();
     await initProxyServer();
     createWindow();
 });
