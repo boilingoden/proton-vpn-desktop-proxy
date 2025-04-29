@@ -2,6 +2,15 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 // Only expose APIs not handled by Electron's extension support
 contextBridge.exposeInMainWorld('chrome', {
+    settings: {
+        // Add minimal settings API that extension might need
+        get: (details, callback) => {
+            if (callback) callback({});
+        },
+        set: (details, callback) => {
+            if (callback) callback();
+        }
+    },
     proxy: {
         settings: {
             set: async (config) => {

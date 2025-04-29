@@ -7,7 +7,7 @@ let proxyServer;
 
 async function initProxyServer() {
     proxyServer = new ProxyServer();
-    await proxyServer.start(2080); // Local proxy will run on 2080
+    await proxyServer.start(2080);
     console.log('Local proxy server started on port 2080');
 }
 
@@ -19,7 +19,7 @@ function createWindow() {
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: false,
-            preload: 'preload.js'
+            preload: path.resolve(__dirname, 'preload.js')
         }
     });
 
