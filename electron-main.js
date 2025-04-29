@@ -1,5 +1,5 @@
 const { app, BrowserWindow, session } = require('electron');
-const path = require('path');
+const path = require('node:path');
 const ProxyServer = require('./server');
 
 let mainWindow;
@@ -19,7 +19,7 @@ function createWindow() {
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: false,
-            preload: path.resolve(__dirname, 'preload.js')
+            preload: 'preload.js'
         }
     });
 
@@ -29,7 +29,7 @@ function createWindow() {
     ).then(({ id }) => {
         console.log('Extension loaded with ID:', id);
         // Load the extension's popup.html directly
-        mainWindow.loadFile(path.join(__dirname, 'extension', 'popup.html'));
+        mainWindow.loadFile('extension/popup.html');
     }).catch(err => {
         console.error('Failed to load extension:', err);
         mainWindow.loadURL('data:text/html,Failed to load VPN extension');

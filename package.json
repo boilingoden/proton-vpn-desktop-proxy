@@ -6,7 +6,7 @@
     "scripts": {
         "start": "electron .",
         "proxy": "node server.js",
-        "dev": "electron . --debug",
+        "dev": "electron . --inspect",
         "test": "echo \"Error: no test specified\" && exit 1"
     },
     "repository": {
@@ -29,8 +29,5 @@
         "express": "^4.17.1",
         "http-proxy": "^1.18.1",
         "ipaddr.js": "^2.2.0"
-    },
-    "devDependencies": {
-        "electron-reload": "^2.0.0"
     }
 }
